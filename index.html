@@ -59,6 +59,8 @@ window.fbListen = fbListen;
 window.fbListenCollection = fbListenCollection;
 window.fbDb = db;
 window.fbReady = true;
+// Exposer les modules pour usage externe
+window.fbModules = { getDoc, doc, setDoc, collection, onSnapshot, deleteDoc, getDocs };
 
 // ── ÉCOUTE EN TEMPS RÉEL ──
 // Livreurs
@@ -467,13 +469,14 @@ function initFbLivreurs(){
 setTimeout(initFbLivreurs, 1000);
 function saveLivreurs(l){
   try{localStorage.setItem('fdj-livreurs-list',JSON.stringify(l));}catch(e){}
-  if(window.fbReady){
-    var obj={};
-    l.forEach(function(liv){obj[liv.id]=liv;});
-    l.forEach(function(liv){
-      window.fbSave('fdj-livreurs', liv.id, liv);
-    });
+  function doFbSaveLiv(){
+    if(window.fbReady){
+      l.forEach(function(liv){window.fbSave('fdj-livreurs', liv.id, liv);});
+    } else {
+      setTimeout(doFbSaveLiv, 500);
+    }
   }
+  doFbSaveLiv();
 }
 function loadCamions(date){try{var r=localStorage.getItem('fdj-camions:'+date);return r?JSON.parse(r):[];}catch(e){return[];}}
 function saveCamions(date,l){
@@ -739,9 +742,14 @@ function load(date){
 function persist(list){
   state.deliveries=list;
   try{localStorage.setItem('fdj-tournee:'+state.date,JSON.stringify(list));}catch(e){state.errorMsg='Sauvegarde echouee.';}
-  if(window.fbReady){
-    window.fbSave('fdj-tournees', state.date, {deliveries:list, date:state.date, updatedAt:new Date().toISOString()});
+  function doFbSave(){
+    if(window.fbReady){
+      window.fbSave('fdj-tournees', state.date, {deliveries:list, date:state.date, updatedAt:new Date().toISOString()});
+    } else {
+      setTimeout(doFbSave, 500); // retry si Firebase pas prêt
+    }
   }
+  doFbSave();
 }
 function addDelivery(data){var entry={id:genId(),client:data.client,address:data.address,time:data.time,ref:data.ref||'',instructions:data.instructions||'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',createdAt:new Date().toISOString()};persist(state.deliveries.concat([entry]));state.showAdd=false;state.pdfData=null;render();}
 function assignLivreur(id,livreurId){
@@ -849,7 +857,23 @@ if(action==='goto-livreur-name'){state.screen='livreur-name';state.loginError=''
 if(action==='check-livreur-name'){var name=(document.getElementById('l-name').value||'').trim();if(!name){state.loginError='Entrez votre prénom.';render();return;}state.pendingLivreurName=name;var found=state.livreurs.find(function(l){return l.name.toLowerCase()===name.toLowerCase();});if(found&&found.pwdHash){state.pendingLivreurObj=found;state.screen='livreur-password';}else{state.pendingLivreurObj=found||null;state.screen='livreur-new-password';}state.loginError='';render();return;}
 if(action==='do-livreur-pwd-check'){var pwd=document.getElementById('l-pwd').value;if(!pwd){state.loginError='Entrez votre mot de passe.';render();return;}if(hashPwd(pwd)===state.pendingLivreurObj.pwdHash){var liv=state.pendingLivreurObj;state.livreurName=liv.name;localStorage.setItem('fdj-livreur',liv.name);state.livreurId=liv.id;sessionStorage.setItem('fdj-role','livreur');sessionStorage.setItem('fdj-livreur-id',liv.id);state.role='livreur';state.screen='app';state.loginError='';load(state.date);}else{state.loginError='Mot de passe incorrect.';render();}return;}
 if(action==='do-livreur-new-pwd'){var p1=document.getElementById('l-pwd1').value;var p2=document.getElementById('l-pwd2').value;if(!p1){state.loginError='Entrez un mot de passe.';render();return;}if(p1!==p2){state.loginError='Les mots de passe ne correspondent pas.';render();return;}if(p1.length<4){state.loginError='Mot de passe trop court (4 caractères min).';render();return;}var hash=hashPwd(p1);var liv2;if(state.pendingLivreurObj){state.pendingLivreurObj.pwdHash=hash;saveLivreurs(state.livreurs);liv2=state.pendingLivreurObj;}else{var newId=addLivreur(state.pendingLivreurName,'');liv2=getLivreurById(newId);liv2.pwdHash=hash;saveLivreurs(state.livreurs);}state.livreurName=liv2.name;localStorage.setItem('fdj-livreur',liv2.name);state.livreurId=liv2.id;sessionStorage.setItem('fdj-role','livreur');sessionStorage.setItem('fdj-livreur-id',liv2.id);state.role='livreur';state.screen='app';state.loginError='';load(state.date);return;}
-if(action==='refresh'){state.livreurs=loadLivreurs();load(state.date);return;}
+if(action==='refresh'){
+  // Feedback visuel immédiat
+  el.querySelector('.resp-action-icon') && (el.querySelector('.resp-action-icon').textContent='⏳');
+  el.querySelector('.resp-action-lbl') && (el.querySelector('.resp-action-lbl').textContent='Synchro...');
+  state.livreurs=loadLivreurs();
+  load(state.date);
+  // Si Firebase prêt, forcer lecture depuis Firestore
+  if(window.fbReady && window.fbDb){
+    var {getDoc, doc} = window.fbModules || {};
+    // Re-activer les listeners
+    if(window._unsubDeliveries){window._unsubDeliveries();window._unsubDeliveries=null;}
+    if(window._unsubCamions){window._unsubCamions();window._unsubCamions=null;}
+    load(state.date);
+  }
+  setTimeout(function(){render();},1500);
+  return;
+}
 if(action==='toggle-sel-mode'){state.selMode=!state.selMode;state.selected={};render();return;}
 if(action==='cancel-sel'){state.selMode=false;state.selected={};render();return;}
 if(action==='toggle-select'){
@@ -960,6 +984,16 @@ document.getElementById('app').addEventListener('keydown',function(e){if(e.key!=
 document.getElementById('pdf-input').addEventListener('change',function(e){var file=e.target.files&&e.target.files[0];if(file)readPdf(file);e.target.value='';});
 render();
 if(state.screen==='app')load(state.date);
+
+// Quand Firebase devient prêt → recharger depuis le cloud
+window.addEventListener('firebase-ready', function(){
+  console.log('Firebase prêt - synchronisation...');
+  if(state.screen==='app'){
+    load(state.date);
+    // Synchroniser les livreurs depuis Firebase
+    initFbLivreurs();
+  }
+});
 })();
 </script>
 </body>
