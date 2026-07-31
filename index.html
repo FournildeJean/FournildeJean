@@ -812,6 +812,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .field input:focus,.field textarea:focus,.field select:focus{border-color:var(--ink);}
 .field input::placeholder,.field textarea::placeholder{color:var(--ink-3);}
 .field select{appearance:none;background-image:url(';
+// Stocker les images dès que le DOM est prêt
+var _IMG_SAVE='', _IMG_EXIT='';
+document.addEventListener('DOMContentLoaded',function(){
+  var s=document.getElementById('img-save');
+  var e=document.getElementById('img-exit');
+  if(s) _IMG_SAVE=s.src;
+  if(e) _IMG_EXIT=e.src;
+});
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
 var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,pendingPhoto:null,showRapport:false,showModifier:false};
 var savedRole=sessionStorage.getItem('fdj-role');
@@ -871,6 +879,14 @@ function saveCamions(date,l){
     window.fbSave('fdj-camions', date, {camions:l, date:date, updatedAt:new Date().toISOString()});
   }
 }
+// Stocker les images dès que le DOM est prêt
+var _IMG_SAVE='', _IMG_EXIT='';
+document.addEventListener('DOMContentLoaded',function(){
+  var s=document.getElementById('img-save');
+  var e=document.getElementById('img-exit');
+  if(s) _IMG_SAVE=s.src;
+  if(e) _IMG_EXIT=e.src;
+});
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
 var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,pendingPhoto:null,showRapport:false,showModifier:false};
 var savedRole=sessionStorage.getItem('fdj-role');
@@ -1385,7 +1401,7 @@ function renderLivreurApp(){
       delivered=state.deliveries.filter(function(d){return d.status==='delivered';}).length,
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
-  var exitSrc=document.getElementById('img-exit')?document.getElementById('img-exit').src:'';
+  var exitSrc=_IMG_EXIT||'';
   var html='<div class="shell">';
   html+='<div class="app-header"><div class="header-top">'+
     '<div class="header-text">'+
@@ -1457,7 +1473,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
       html+='<div class="divider"></div>';
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;" data-action="toggle-modifier">✏️ Modifier le pointage moi-même</button>';
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:'+(state.showModifier?'12':'0')+'px;" data-action="toggle-modifier">'+(state.showModifier?'▲ Fermer':'✏️ Modifier')+'</button>';
       if(state.showModifier){
         html+='<div class="outcome-grid">';
         OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
@@ -1471,15 +1487,15 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
       html+='</div>';
     }
-    // Constats + micro (commun)
-    html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="Laisser dans un magasin, remettre à un voisin..." style="width:100%;"></textarea>';
-    // Photo de preuve (commun)
-    html+='<div style="margin:10px 0 6px;"><div class="field-label">📷 Photo de preuve <span style="font-size:9px;font-weight:400;color:var(--ink-3);">(optionnel)</span></div>';
-    html+='<button id="btn-camera" class="btn-camera" data-action="take-photo">'+(state.pendingPhoto?'📷 Changer la photo':'📷 Prendre une photo')+'</button>';
-    if(state.pendingPhoto) html+='<img class="photo-preview" src="'+state.pendingPhoto+'"/><button class="btn-sig-clear" data-action="clear-photo" style="display:block;margin-top:4px;">✕ Supprimer</button>';
-    html+='</div>';
-    // Boutons Annuler + Valider (commun)
-    html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">Valider le pointage</button></div>';
+    // Constats + photo + boutons : pour livreur toujours visible, pour responsable sous "Modifier"
+    if(state.role==='livreur'||state.showModifier){
+      html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder=""></textarea>';
+      html+='<div style="margin:10px 0 6px;"><div class="field-label">📷 Photo de preuve <span style="font-size:9px;font-weight:400;color:var(--ink-3);">(optionnel)</span></div>';
+      html+='<button id="btn-camera" class="btn-camera" data-action="take-photo">'+(state.pendingPhoto?'📷 Changer la photo':'📷 Prendre une photo')+'</button>';
+      if(state.pendingPhoto) html+='<img class="photo-preview" src="'+state.pendingPhoto+'"/><button class="btn-sig-clear" data-action="clear-photo" style="display:block;margin-top:4px;">✕ Supprimer</button>';
+      html+='</div>';
+      html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">Valider le pointage</button></div>';
+    }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
   if(d.photo)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Photo de preuve</div><img src="'+d.photo+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:160px;object-fit:cover;"/></div>';
   if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
@@ -1489,8 +1505,8 @@ function renderResponsableApp(){
       delivered=state.deliveries.filter(function(d){return d.status==='delivered';}).length,
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
-  var saveImgSrc=document.getElementById('img-save')?document.getElementById('img-save').src:'';
-  var exitImgSrc=document.getElementById('img-exit')?document.getElementById('img-exit').src:'';
+  var saveImgSrc=_IMG_SAVE||'';
+  var exitImgSrc=_IMG_EXIT||'';
   var html='<div class="shell">';
   html+='<div class="app-header"><div class="header-top" style="padding-bottom:10px;">'+
     '<div class="header-text">'+
