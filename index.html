@@ -908,6 +908,13 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
     var slid=state.modifyMode?(state.livreurs.find(function(l){return l.name===d.livreur;})||{id:null}).id:state.livreurId;var sliv=getLivreurById(slid);
     if(sliv&&sliv.phone)html+='<div style="font-size:12px;margin:-4px 0 12px;"><a href="tel:'+esc(sliv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(sliv.phone)+'</a></div>';
     html+='<div class="field"><div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="Remis en main propre, laissé chez voisin..."></textarea></div>';
+    // PHOTO DE PREUVE
+    html+='<div style="margin:10px 0 6px;"><div class="field-label">📷 Photo de preuve <span style="font-size:9px;font-weight:400;color:var(--ink-3);">(optionnel)</span></div>';
+    html+='<button id="btn-camera" class="btn-camera" data-action="take-photo">'+(state.pendingPhoto?'📷 Changer la photo':'📷 Prendre une photo')+'</button>';
+    if(state.pendingPhoto) html+='<img class="photo-preview" src="'+state.pendingPhoto+'"/><button class="btn-sig-clear" data-action="clear-photo" style="display:block;margin-top:4px;">✕ Supprimer</button>';
+    html+='</div>';
+    // SIGNATURE
+    html+='<div class="sig-wrap"><div class="sig-label"><span>✍️ Signature client <span style="font-size:9px;font-weight:400;">(optionnel)</span></span><button class="btn-sig-clear" data-action="clear-sig">Effacer</button></div><canvas id="sig-canvas" class="sig-canvas"></canvas><div class="sig-hint">Le client signe avec son doigt</div></div>';
     if(state.modifyMode){
     html+='<button class="btn-outline" style="margin-bottom:8px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="reassign-livreur" data-id="'+d.id+'">👤 Assigner à nouveau</button>';
   }
