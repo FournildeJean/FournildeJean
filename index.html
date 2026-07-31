@@ -813,7 +813,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .field input::placeholder,.field textarea::placeholder{color:var(--ink-3);}
 .field select{appearance:none;background-image:url(';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,pendingPhoto:null,showRapport:false};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,pendingPhoto:null,showRapport:false,showModifier:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -872,7 +872,7 @@ function saveCamions(date,l){
   }
 }
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,pendingPhoto:null,showRapport:false};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,pendingPhoto:null,showRapport:false,showModifier:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -1457,10 +1457,12 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
       html+='<div class="divider"></div>';
-      html+='<div style="font-size:10px;font-weight:700;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Pointer moi-même</div>';
-      html+='<div class="outcome-grid">';
-      OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
-      html+='</div>';
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;" data-action="toggle-modifier">✏️ Modifier le pointage moi-même</button>';
+      if(state.showModifier){
+        html+='<div class="outcome-grid">';
+        OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
+        html+='</div>';
+      }
     } else {
       // LIVREUR : son nom auto, pas de dropdown
       html+='<div style="font-size:12px;margin-bottom:12px;padding:8px 12px;background:var(--paper-2);border-radius:8px;">Livreur : <strong>'+esc(state.livreurName)+'</strong></div>';
@@ -1678,8 +1680,9 @@ else if(action==='submit-add'){
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv});
 }
 else if(action==='select'){state.selectedId=id;state.pendingOutcome='delivered';if(state.role!=='livreur')state.selectedLivreurId='';render();}
-else if(action==='close-detail'){state.selectedId=null;state.modifyMode=false;render();}
+else if(action==='close-detail'){state.selectedId=null;state.modifyMode=false;state.showModifier=false;render();}
 else if(action==='set-outcome'){state.pendingOutcome=el.getAttribute('data-key');render();}
+else if(action==='toggle-modifier'){state.showModifier=!state.showModifier;render();}
 else if(action==='start-voice'){startVoice();}
 else if(action==='take-photo'){document.getElementById('cam-input').click();}
 else if(action==='clear-photo'){state.pendingPhoto=null;var prev=document.getElementById('photo-preview');if(prev){prev.src='';prev.style.display='none';}var btn=document.getElementById('btn-camera');if(btn)btn.textContent='📷 Prendre une photo';}
@@ -1716,13 +1719,14 @@ var _origRender=render;
 render=function(){
   _origRender();
   setTimeout(function(){
-    initSignature();
-    // Init signature camion
-    var scam=document.getElementById('sig-canvas-camion');
-    if(scam){initSignatureCanvas(scam);}
+    // Init TOUTES les signatures (camions + pointage)
+    document.querySelectorAll('canvas.sig-canvas').forEach(function(canvas){
+      initSignatureCanvas(canvas);
+    });
+    // Caméra
     var camInp=document.getElementById('cam-input');
     if(camInp)camInp.onchange=handlePhoto;
-  },50);
+  },150);
 };
 
 // Quand Firebase devient prêt → recharger depuis le cloud
