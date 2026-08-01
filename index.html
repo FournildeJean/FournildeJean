@@ -64,7 +64,9 @@ window.fbModules = { getDoc, doc, setDoc, collection, onSnapshot, deleteDoc, get
 
 // ── ÉCOUTE EN TEMPS RÉEL ──
 // Livreurs
+window._lastLivreursData = null;
 fbListenCollection('fdj-livreurs', function(data) {
+  window._lastLivreursData = data;
   if(typeof window.onFbLivreurs === 'function') window.onFbLivreurs(data);
 });
 
@@ -421,8 +423,9 @@ function initFbLivreurs(){
       render();
     }
   };
+  if(window._lastLivreursData) window.onFbLivreurs(window._lastLivreursData);
 }
-setTimeout(initFbLivreurs, 1000);
+initFbLivreurs();
 function saveLivreurs(l){
   try{localStorage.setItem('fdj-livreurs-list',JSON.stringify(l));}catch(e){}
   function doFbSaveLiv(){
@@ -474,11 +477,9 @@ function handlePhoto(e){
   var reader=new FileReader();
   reader.onload=function(ev){
     state.pendingPhoto=ev.target.result;
-    // Afficher preview
-    var prev=document.getElementById('photo-preview');
-    if(prev){prev.src=ev.target.result;prev.style.display='block';}
-    var btn=document.getElementById('btn-camera');
-    if(btn)btn.textContent='📷 Changer la photo';
+    var noteEl=document.getElementById('f-note');
+    if(noteEl) state.pendingNote=noteEl.value;
+    render();
   };
   reader.readAsDataURL(file);
 }
@@ -559,7 +560,7 @@ function startVoice(){
   rec.onresult=function(e){
     var t=e.results[0][0].transcript;
     var field=document.getElementById('f-note');
-    if(field)field.value=(field.value?field.value+' ':'')+t;
+    if(field){field.value=(field.value?field.value+' ':'')+t;state.pendingNote=field.value;}
     if(btn)btn.classList.remove('recording');
     if(status)status.classList.remove('active');
   };
@@ -935,6 +936,7 @@ function renderRapportModal(){
         '<button class="btn-rapport-cancel" data-action="close-rapport">Annuler</button>'+
         '<button class="btn-rapport-go" data-action="gen-rapport">📄 Générer</button>'+
       '</div>'+
+      '<button class="btn-danger" style="width:100%;margin-top:10px;padding:11px;" data-action="delete-rapport">🗑 Supprimer les données de cette période</button>'+
     '</div>'+
   '</div>';
 }
@@ -1028,7 +1030,7 @@ function renderLivreurApp(){
           '<button class="btn-sig-clear" data-action="clear-sig-cam" data-cam-id="'+cam.id+'">Effacer</button></div>'+
         (cam.signature?
           '<img src="'+cam.signature+'" style="width:100%;max-height:70px;object-fit:contain;border:1.5px solid var(--green);border-radius:8px;background:#fff;"/>'+
-          '<button class="btn-sig-clear" data-action="resign-cam" data-cam-id="'+cam.id+'" style="margin-top:4px;display:block;">↺ Resignifier</button>':
+          '<button class="btn-sig-clear" data-action="resign-cam" data-cam-id="'+cam.id+'" style="margin-top:4px;display:block;">↺ Resigner</button>':
           '<canvas id="sig-cam-'+cam.id+'" class="sig-canvas" style="height:80px;"></canvas>')+
       '</div>'+
       '<button class="btn-save-camion" data-action="save-camion" data-cam-id="'+cam.id+'">Enregistrer</button>'+
@@ -1069,7 +1071,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
     }
     // Constats + photo + boutons : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
-      html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder=""></textarea>';
+      html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
       html+='<button id="btn-camera" class="btn-camera" style="margin-top:10px;" data-action="take-photo">'+(state.pendingPhoto?'📷 Changer la photo':'📷 Prendre une photo')+'</button>';
       if(state.pendingPhoto) html+='<img class="photo-preview" src="'+state.pendingPhoto+'"/><button class="btn-sig-clear" data-action="clear-photo" style="display:block;margin-top:4px;">✕ Supprimer</button>';
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">Valider le pointage</button></div>';
@@ -1142,6 +1144,24 @@ if(action==='gen-rapport'){
   if(!from||!to){alert('Sélectionnez une période.');return;}
   if(from>to){alert('La date début doit être avant la date fin.');return;}
   generateRapport(from,to);
+  return;
+}
+if(action==='delete-rapport'){
+  var delFrom=document.getElementById('r-from').value;
+  var delTo=document.getElementById('r-to').value;
+  if(!delFrom||!delTo){alert('Sélectionnez une période.');return;}
+  if(delFrom>delTo){alert('La date début doit être avant la date fin.');return;}
+  if(!confirm('Supprimer définitivement les tournées (livreur, horaires, signatures) du '+delFrom.split('-').reverse().join('/')+' au '+delTo.split('-').reverse().join('/')+' ?\n\nCette action est irréversible.'))return;
+  var dcur=new Date(delFrom+'T00:00:00');var dend=new Date(delTo+'T00:00:00');
+  while(dcur<=dend){
+    var dk=toLocalISODate(dcur);
+    saveCamions(dk,[]);
+    if(dk===state.date)state.camions=[];
+    dcur.setDate(dcur.getDate()+1);
+  }
+  state.showRapport=false;
+  render();
+  alert('Données supprimées pour la période sélectionnée.');
   return;
 }
 if(action==='refresh'){
@@ -1272,13 +1292,13 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv});
 }
-else if(action==='select'){state.selectedId=id;state.pendingOutcome='delivered';if(state.role!=='livreur')state.selectedLivreurId='';render();}
-else if(action==='close-detail'){state.selectedId=null;state.modifyMode=false;state.showModifier=false;render();}
+else if(action==='select'){state.selectedId=id;state.pendingOutcome='delivered';state.pendingPhoto=null;state.pendingNote='';if(state.role!=='livreur')state.selectedLivreurId='';render();}
+else if(action==='close-detail'){state.selectedId=null;state.modifyMode=false;state.showModifier=false;state.pendingPhoto=null;state.pendingNote='';render();}
 else if(action==='set-outcome'){state.pendingOutcome=el.getAttribute('data-key');render();}
 else if(action==='toggle-modifier'){state.showModifier=!state.showModifier;render();}
 else if(action==='start-voice'){startVoice();}
 else if(action==='take-photo'){document.getElementById('cam-input').click();}
-else if(action==='clear-photo'){state.pendingPhoto=null;var prev=document.getElementById('photo-preview');if(prev){prev.src='';prev.style.display='none';}var btn=document.getElementById('btn-camera');if(btn)btn.textContent='📷 Prendre une photo';}
+else if(action==='clear-photo'){state.pendingPhoto=null;var noteEl2=document.getElementById('f-note');if(noteEl2)state.pendingNote=noteEl2.value;render();}
 else if(action==='clear-sig'){clearSignature();}
 else if(action==='clear-sig-cam'){
   var camIdClear=el.getAttribute('data-cam-id');
@@ -1297,6 +1317,7 @@ else if(action==='submit-point'){
   var signature=getSignatureData()||null;
   pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note,photo:photo,signature:signature});
   state.pendingPhoto=null;
+  state.pendingNote='';
   if(state.role==='livreur'){state.selectedId=null;render();}
   state.modifyMode=false;
 }
@@ -1305,7 +1326,7 @@ else if(action==='revert')revertDelivery(id);
 else if(action==='delete')deleteDelivery(id);
 });
 document.getElementById('app').addEventListener('change',function(e){if(e.target.id==='f-livreur-select'){state.selectedLivreurId=e.target.value;render();}});
-document.getElementById('app').addEventListener('input',function(e){if(e.target.classList.contains('time-txt')){var pos=e.target.selectionStart;var raw=e.target.value.replace(/[^0-9]/g,'').slice(0,4);var fmt=raw.length>=3?raw.slice(0,2)+':'+raw.slice(2,4):raw;e.target.value=fmt;try{e.target.setSelectionRange(pos>2?pos+1:pos,pos>2?pos+1:pos);}catch(x){}}});
+document.getElementById('app').addEventListener('input',function(e){if(e.target.classList.contains('time-txt')){var pos=e.target.selectionStart;var raw=e.target.value.replace(/[^0-9]/g,'').slice(0,4);var fmt=raw.length>=3?raw.slice(0,2)+':'+raw.slice(2,4):raw;e.target.value=fmt;try{e.target.setSelectionRange(pos>2?pos+1:pos,pos>2?pos+1:pos);}catch(x){}}if(e.target.id==='f-note'){state.pendingNote=e.target.value;}});
 document.getElementById('app').addEventListener('blur',function(e){if(e.target.classList.contains('camion-field')){var lid=e.target.getAttribute('data-cam-liv');var field=e.target.getAttribute('data-cam-field');if(lid&&field){var upd={};upd[field]=normalizeTime(e.target.value.trim())||e.target.value.trim();upsertCamion(lid,upd);}}},true);
 document.getElementById('app').addEventListener('keydown',function(e){if(e.key!=='Enter')return;var btn=null;if(state.screen==='livreur-name')btn=document.querySelector('[data-action="check-livreur-name"]');else if(state.screen==='livreur-password')btn=document.querySelector('[data-action="do-livreur-pwd-check"]');else if(state.screen==='livreur-new-password')btn=document.querySelector('[data-action="do-livreur-new-pwd"]');else if(state.screen==='password')btn=document.querySelector('[data-action="do-resp-login"]');if(btn)btn.click();});
 document.getElementById('pdf-input').addEventListener('change',function(e){var file=e.target.files&&e.target.files[0];if(file)readPdf(file);e.target.value='';});
