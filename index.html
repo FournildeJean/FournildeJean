@@ -502,8 +502,14 @@ function buildDeliveryBLText(d){
 function shareDelivery(d){
   var text=buildDeliveryBLText(d);
   var photos=getDeliveryPhotos(d);
-  var fileSources=photos.map(function(p,i){return {src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'};});
-  if(d.blPdf) fileSources.push({src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'});
+  // Ne jamais melanger types de fichiers dans un seul partage : WhatsApp ignore/echoue souvent
+  // quand on combine images + PDF. On priorise le PDF du BL s'il existe, sinon les photos.
+  var fileSources=[];
+  if(d.blPdf){
+    fileSources=[{src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'}];
+  } else if(photos.length){
+    fileSources=photos.map(function(p,i){return {src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'};});
+  }
   if(navigator.share && fileSources.length){
     Promise.all(fileSources.map(function(fs){return fetch(fs.src).then(function(r){return r.blob();});}))
       .then(function(blobs){
@@ -525,6 +531,11 @@ function shareDelivery(d){
   } else {
     shareWhatsApp(text);
   }
+}
+function openDeliveryPdf(d){
+  if(!d.blPdf){alert('Aucun PDF importe pour cette livraison.');return;}
+  var w=window.open(d.blPdf,'_blank');
+  if(!w)alert('Autorisez les popups pour ouvrir le PDF.');
 }
 function arrayBufferToBase64(buffer){
   var bytes=new Uint8Array(buffer);
@@ -1176,8 +1187,77 @@ function renderDashboardModal(){
       '</div>'+
       body+
       (stats?'<button class="btn-outline" style="width:100%;margin-top:6px;padding:11px;" data-action="print-dashboard">🖨 Version imprimable / PDF</button>':'')+
+      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-dashboard-excel">💾 Export Excel</button>':'')+
     '</div>'+
   '</div>';
+}
+function autoFitCols(rows){
+  var widths=[];
+  rows.forEach(function(row){
+    (row||[]).forEach(function(cell,i){
+      var len=String(cell==null?'':cell).length;
+      widths[i]=Math.max(widths[i]||8, Math.min(50, len+2));
+    });
+  });
+  return widths.map(function(w){return {wch:w};});
+}
+function exportDashboardExcel(dateFrom, dateTo){
+  if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
+  var stats=computeDashboardStats(dateFrom,dateTo);
+  var t=stats.totals;
+  var rate=t.total?Math.round((t.delivered/t.total)*100):0;
+
+  var rowsResume=[['Indicateur','Valeur']];
+  rowsResume.push(['Periode', dateFrom.split('-').reverse().join('/')+' au '+dateTo.split('-').reverse().join('/')]);
+  rowsResume.push(['Total livraisons', t.total]);
+  rowsResume.push(['Livrees', t.delivered]);
+  rowsResume.push(['En attente', t.pending]);
+  rowsResume.push(['En cours', t.in_progress]);
+  rowsResume.push(['Absent', t.absent]);
+  rowsResume.push(['Refuse', t.refused]);
+  rowsResume.push(['Incident', t.incident]);
+  rowsResume.push(['Taux de livraison', rate+'%']);
+  rowsResume.push([]);
+  rowsResume.push(['Date','Total','Livrees','Incidents']);
+  stats.days.forEach(function(dday){rowsResume.push([dday.date, dday.total, dday.delivered, dday.issues]);});
+
+  var rowsLiv=[['Livreur','Total','Livrees','Incidents']];
+  Object.keys(stats.perLivreur).sort(function(a,b){return stats.perLivreur[b].total-stats.perLivreur[a].total;}).forEach(function(name){
+    var lv=stats.perLivreur[name];
+    rowsLiv.push([name, lv.total, lv.delivered, lv.issues]);
+  });
+
+  var rowsClients=[['Client','Livraisons','Incidents']];
+  Object.keys(stats.perClient).sort(function(a,b){return stats.perClient[b].total-stats.perClient[a].total;}).forEach(function(name){
+    var c=stats.perClient[name];
+    rowsClients.push([name, c.total, c.issues]);
+  });
+
+  var rowsProducts=[['Produit','Quantite','Commandes']];
+  Object.keys(stats.perProduct).sort(function(a,b){return stats.perProduct[b].qty-stats.perProduct[a].qty;}).forEach(function(key){
+    var p=stats.perProduct[key];
+    rowsProducts.push([p.name, p.qty, p.orders]);
+  });
+
+  var wsResume=XLSX.utils.aoa_to_sheet(rowsResume);
+  var wsLiv=XLSX.utils.aoa_to_sheet(rowsLiv);
+  var wsClients=XLSX.utils.aoa_to_sheet(rowsClients);
+  var wsProducts=XLSX.utils.aoa_to_sheet(rowsProducts);
+
+  wsResume['!cols']=autoFitCols(rowsResume);
+  wsLiv['!cols']=autoFitCols(rowsLiv);
+  if(rowsLiv.length>1)wsLiv['!autofilter']={ref:'A1:D1'};
+  wsClients['!cols']=autoFitCols(rowsClients);
+  if(rowsClients.length>1)wsClients['!autofilter']={ref:'A1:C1'};
+  wsProducts['!cols']=autoFitCols(rowsProducts);
+  if(rowsProducts.length>1)wsProducts['!autofilter']={ref:'A1:C1'};
+
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,wsResume,'Resume');
+  XLSX.utils.book_append_sheet(wb,wsLiv,'Par livreur');
+  XLSX.utils.book_append_sheet(wb,wsClients,'Clients');
+  XLSX.utils.book_append_sheet(wb,wsProducts,'Produits');
+  XLSX.writeFile(wb,'bilan-'+dateFrom+'-au-'+dateTo+'.xlsx');
 }
 function printDashboard(dateFrom, dateTo){
   var stats=computeDashboardStats(dateFrom,dateTo);
@@ -1334,6 +1414,7 @@ function renderLivreurApp(){
         (cam.signature?
           '<img src="'+cam.signature+'" style="width:100%;max-height:70px;object-fit:contain;border:1.5px solid var(--green);border-radius:8px;background:#fff;"/>':
           '<canvas id="sig-cam-'+cam.id+'" class="sig-canvas" style="height:80px;"></canvas>')+
+        (state._justSignedCamId===cam.id?'<div style="margin-top:8px;padding:8px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:12px;font-weight:700;text-align:center;">✅ Vous avez signé !</div>':'')+
       '</div>'+
       '<button class="btn-save-camion" data-action="save-camion" data-cam-id="'+cam.id+'">Enregistrer</button>'+
     '</div>';
@@ -1363,6 +1444,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';
+      if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
       html+='<div class="divider"></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:'+(state.showModifier?'12':'0')+'px;" data-action="toggle-modifier">'+(state.showModifier?'▲ Fermer':'✏️ Modifier')+'</button>';
       if(state.showModifier){
@@ -1386,7 +1468,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';html+='<button class="btn-outline" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';html+='<button class="btn-outline" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';if(d.blPdf)html+='<button class="btn-outline" data-action="open-bl-pdf" data-id="'+d.id+'">📄 PDF</button>';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderResponsableApp(){
   var total=state.deliveries.length,
@@ -1463,6 +1545,11 @@ if(action==='print-dashboard'){
   if(r)printDashboard(r.from,r.to);
   return;
 }
+if(action==='export-dashboard-excel'){
+  var re=state._dashboardRange;
+  if(re)exportDashboardExcel(re.from,re.to);
+  return;
+}
 if(action==='gen-rapport'){
   var from=document.getElementById('r-from').value;
   var to=document.getElementById('r-to').value;
@@ -1531,7 +1618,11 @@ if(action==='save-camion'){
   var sigData=null;
   var sigCam=camIdSave?document.getElementById('sig-cam-'+camIdSave):null;
   if(sigCam&&sigCam.classList.contains('signed')){sigData=sigCam.toDataURL('image/png');}
-  if(sigData&&camIdSave){upsertCamionById(camIdSave,{signature:sigData});}
+  if(sigData&&camIdSave){
+    upsertCamionById(camIdSave,{signature:sigData});
+    state._justSignedCamId=camIdSave;
+    setTimeout(function(){if(state._justSignedCamId===camIdSave){state._justSignedCamId=null;render();}},3000);
+  }
   el.textContent='✅ Enregistré !';
   setTimeout(function(){render();},1200);
   return;
@@ -1549,6 +1640,7 @@ if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
 if(action==='export-excel'){exportExcel();return;}
 if(action==='gen-invoice'){var deliv=state.deliveries.find(function(x){return x.id===id;});if(deliv)generateInvoice(deliv);return;}
 if(action==='share-delivery'){var delivSh=state.deliveries.find(function(x){return x.id===id;});if(delivSh)shareDelivery(delivSh);return;}
+if(action==='open-bl-pdf'){var delivPdf=state.deliveries.find(function(x){return x.id===id;});if(delivPdf)openDeliveryPdf(delivPdf);return;}
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
 if(action==='reassign-livreur'){
   // Réassigner sans pointer — garder en attente
@@ -1647,7 +1739,7 @@ else if(action==='clear-sig-cam'){
 }
 else if(action==='erase-cam-signature'){
   var camIdErase=el.getAttribute('data-cam-id');
-  if(camIdErase&&confirm('Effacer cette signature ?')){upsertCamionById(camIdErase,{signature:null});render();}
+  if(camIdErase&&confirm('Effacer cette signature ?')){if(state._justSignedCamId===camIdErase)state._justSignedCamId=null;upsertCamionById(camIdErase,{signature:null});render();}
 }
 else if(action==='submit-point'){
   var selId=state.role==='livreur'?state.livreurId:state.selectedLivreurId;
@@ -1715,17 +1807,12 @@ function initPublicTracking(trackId, trackDate){
       }
       var meta=TRACK_STATUS_PUBLIC[d.status]||TRACK_STATUS_PUBLIC.pending;
       var timeInfo=d.status==='delivered'&&d.deliveredAt?('à '+new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})):('prévue '+esc(d.time||''));
-      var pubPhotos=getDeliveryPhotos(d);
-      var photosHtml=pubPhotos.length?('<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;max-width:320px;">'+pubPhotos.map(function(p){return'<a href="'+p.src+'" target="_blank"><img src="'+p.src+'" style="width:72px;height:72px;border-radius:8px;object-fit:cover;border:1px solid var(--rule);display:block;"/></a>';}).join('')+'</div>'):'';
+      var noteHtml=d.note?('<div style="background:#fff;border:1px solid var(--rule);border-radius:12px;padding:16px;width:100%;max-width:320px;text-align:left;margin-top:14px;"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin-bottom:4px;">Message</div><div style="font-size:14px;color:var(--ink);">'+esc(d.note)+'</div></div>'):'';
       renderPublicTrackingShell(
         '<div style="font-size:44px;margin-bottom:8px;">'+meta.icon+'</div>'+
         '<div style="font-size:17px;font-weight:700;color:'+meta.color+';margin-bottom:6px;">'+meta.label+'</div>'+
-        '<div style="font-size:13px;color:var(--ink-3);margin-bottom:20px;">Livraison '+timeInfo+'</div>'+
-        '<div style="background:#fff;border:1px solid var(--rule);border-radius:12px;padding:16px;width:100%;max-width:320px;text-align:left;">'+
-          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin-bottom:2px;">Client</div>'+
-          '<div style="font-size:15px;font-weight:700;color:var(--ink);">'+esc(d.client||'')+'</div>'+
-        '</div>'+
-        photosHtml+
+        '<div style="font-size:13px;color:var(--ink-3);">Livraison '+timeInfo+'</div>'+
+        noteHtml+
         '<button class="btn-outline" style="margin-top:20px;padding:10px 20px;" onclick="location.reload()">🔄 Actualiser</button>'
       );
     }).catch(function(){
