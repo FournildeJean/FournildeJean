@@ -30,7 +30,10 @@ const db = getFirestore(fbApp);
 async function fbSave(collection_name, id, data) {
   try {
     await setDoc(doc(db, collection_name, id), data, { merge: true });
-  } catch(e) { console.error('Firebase save error:', e); }
+  } catch(e) {
+    console.error('Firebase save error:', e);
+    if (typeof window.onFbSaveError === 'function') window.onFbSaveError(collection_name, e);
+  }
 }
 
 async function fbDelete(collection_name, id) {
@@ -477,6 +480,29 @@ function initCamera(){
   var inp=document.getElementById('cam-input');
   if(inp) inp.click();
 }
+function compressImage(dataUrl, maxDim, quality){
+  return new Promise(function(resolve){
+    var img=new Image();
+    img.onload=function(){
+      var w=img.width,h=img.height;
+      if(w>maxDim||h>maxDim){
+        if(w>h){h=Math.round(h*maxDim/w);w=maxDim;}
+        else{w=Math.round(w*maxDim/h);h=maxDim;}
+      }
+      try{
+        var canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;
+        var ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      }catch(err){
+        resolve(dataUrl); // en cas d'echec (image invalide, canvas bloque), on garde l'original
+      }
+    };
+    img.onerror=function(){resolve(dataUrl);};
+    img.src=dataUrl;
+  });
+}
 function handlePhoto(e){
   var file=e.target&&e.target.files&&e.target.files[0];
   if(!file) return;
@@ -484,8 +510,11 @@ function handlePhoto(e){
   reader.onload=function(ev){
     var noteEl=document.getElementById('f-note');
     if(noteEl) state.pendingNote=noteEl.value;
-    if(state.selectedId) addDeliveryPhoto(state.selectedId, ev.target.result); // sauvegarde immediate dans la galerie
-    render();
+    var targetId=state.selectedId;
+    compressImage(ev.target.result, 1280, 0.72).then(function(compressed){
+      if(targetId) addDeliveryPhoto(targetId, compressed); // sauvegarde immediate dans la galerie
+      render();
+    });
   };
   reader.readAsDataURL(file);
 }
@@ -833,7 +862,12 @@ function load(date){
 function persist(list){
   state.deliveries=list;
   var ts=new Date().toISOString();
-  try{localStorage.setItem('fdj-tournee:'+state.date,JSON.stringify(list));}catch(e){state.errorMsg='Sauvegarde echouee.';}
+  try{
+    localStorage.setItem('fdj-tournee:'+state.date,JSON.stringify(list));
+  }catch(e){
+    state.errorMsg='Sauvegarde echouee (stockage plein). Liberez de la place ou contactez le support.';
+    alert('⚠️ ATTENTION : la sauvegarde locale a echoue (memoire pleine). La derniere action n\'a peut-etre pas ete enregistree. Verifiez et reessayez.');
+  }
   function doFbSave(){
     if(window.fbReady){
       window.fbSave('fdj-tournees', state.date, {deliveries:list, date:state.date, updatedAt:ts});
@@ -1379,6 +1413,12 @@ document.getElementById('app').addEventListener('input',function(e){
 document.getElementById('app').addEventListener('blur',function(e){if(e.target.classList.contains('camion-field')){saveCamionFields();}},true);
 document.getElementById('app').addEventListener('keydown',function(e){if(e.key!=='Enter')return;var btn=null;if(state.screen==='livreur-name')btn=document.querySelector('[data-action="check-livreur-name"]');else if(state.screen==='livreur-password')btn=document.querySelector('[data-action="do-livreur-pwd-check"]');else if(state.screen==='livreur-new-password')btn=document.querySelector('[data-action="do-livreur-new-pwd"]');else if(state.screen==='password')btn=document.querySelector('[data-action="do-resp-login"]');if(btn)btn.click();});
 document.getElementById('pdf-input').addEventListener('change',function(e){var file=e.target.files&&e.target.files[0];if(file)readPdf(file);e.target.value='';});
+window.onFbSaveError=function(collection_name, err){
+  var msg=(err&&err.message)||'';
+  if(/longer than|exceeds|invalid-argument|payload/i.test(msg)){
+    alert('⚠️ Une photo est trop volumineuse pour etre synchronisee en ligne. Elle reste visible sur cet appareil mais ne sera pas partagee avec les autres tant que le probleme persiste.');
+  }
+};
 render();
 if(state.screen==='app')load(state.date);
 
