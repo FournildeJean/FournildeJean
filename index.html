@@ -845,6 +845,33 @@ function assignLivreur(id,livreurId){
   render();
 }
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
+function getDeliveryPhotos(d){
+  if(d.photos&&d.photos.length)return d.photos;
+  if(d.photo)return[{src:d.photo,at:d.deliveredAt||null}];
+  return[];
+}
+function addDeliveryPhoto(id,photoSrc){
+  if(!photoSrc)return;
+  persist(state.deliveries.map(function(d){
+    if(d.id!==id)return d;
+    var photos=getDeliveryPhotos(d).slice();
+    photos.push({src:photoSrc,at:new Date().toISOString()});
+    var copy=Object.assign({},d,{photos:photos});
+    delete copy.photo; // migrer vers le tableau, on ne garde plus l'ancien champ unique
+    return copy;
+  }));
+}
+function deleteDeliveryPhoto(id,index){
+  persist(state.deliveries.map(function(d){
+    if(d.id!==id)return d;
+    var photos=getDeliveryPhotos(d).slice();
+    photos.splice(index,1);
+    var copy=Object.assign({},d,{photos:photos});
+    delete copy.photo;
+    return copy;
+  }));
+  render();
+}
 function revertDelivery(id){pointDelivery(id,{status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:''});}
 function deleteDelivery(id){persist(state.deliveries.filter(function(d){return d.id!==id;}));state.selectedId=null;render();}
 function changeDate(delta){if(delta==='today'){state.date=toLocalISODate(new Date());}else{var p=state.date.split('-').map(Number),dt=new Date(p[0],p[1]-1,p[2]);dt.setDate(dt.getDate()+delta);state.date=toLocalISODate(dt);}load(state.date);}
@@ -943,7 +970,8 @@ function renderRapportModal(){
 function statCell(l,v){return'<div class="stat-cell"><div class="stat-num">'+v+'</div><div class="stat-lbl">'+l+'</div></div>';}
 function deliveryRow(d){
   var meta=STATUS_META[d.status];
-  var content='<div class="row-indicator '+meta.ind+'"></div><div class="row-body"><div class="row-top"><span class="row-time">'+esc(d.time)+'</span><span class="row-client">'+esc(d.client)+'</span><span class="spill '+meta.sp+'">'+meta.label+'</span></div><div class="row-address">'+esc(d.address)+'</div>'+(d.livreur?'<div class="row-driver">👤 '+esc(d.livreur)+'</div>':'')+'</div>';
+  var nbPhotos=getDeliveryPhotos(d).length;
+  var content='<div class="row-indicator '+meta.ind+'"></div><div class="row-body"><div class="row-top"><span class="row-time">'+esc(d.time)+'</span><span class="row-client">'+esc(d.client)+'</span>'+(nbPhotos?'<span class="spill" style="background:var(--paper-2);color:var(--ink-2);border:1px solid var(--rule);">🖼️ '+nbPhotos+'</span>':'')+'<span class="spill '+meta.sp+'">'+meta.label+'</span></div><div class="row-address">'+esc(d.address)+'</div>'+(d.livreur?'<div class="row-driver">👤 '+esc(d.livreur)+'</div>':'')+'</div>';
   if(state.selMode){
     var chk=state.selected[d.id]?'checked':'';
     return'<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+chk+' data-action="toggle-select" data-id="'+d.id+'"/><button class="delivery-row" data-action="toggle-select" data-id="'+d.id+'">'+content+'</button></div>';
@@ -1072,12 +1100,19 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
     // Constats + photo + boutons : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
-      html+='<button id="btn-camera" class="btn-camera" style="margin-top:10px;" data-action="take-photo">'+(state.pendingPhoto?'📷 Changer la photo':'📷 Prendre une photo')+'</button>';
+      var existingPhotos=getDeliveryPhotos(d);
+      if(existingPhotos.length)html+='<div class="field-label" style="margin-top:10px;">🖼️ Photo(s) déjà enregistrée(s) ('+existingPhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+existingPhotos.map(function(p){return'<a href="'+p.src+'" target="_blank"><img src="'+p.src+'" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid var(--rule);display:block;"/></a>';}).join('')+'</div>';
+      html+='<button id="btn-camera" class="btn-camera" style="margin-top:10px;" data-action="take-photo">'+(state.pendingPhoto?'📷 Changer la photo':'📷 Prendre une photo constat')+'</button>';
       if(state.pendingPhoto) html+='<img class="photo-preview" src="'+state.pendingPhoto+'"/><button class="btn-sig-clear" data-action="clear-photo" style="display:block;margin-top:4px;">✕ Supprimer</button>';
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.photo)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Photo de preuve</div><img src="'+d.photo+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:160px;object-fit:cover;"/></div>';
+  var photosList=getDeliveryPhotos(d);
+  if(photosList.length)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Photo constat'+(photosList.length>1?' ('+photosList.length+')':'')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">'+photosList.map(function(p,pi){
+    return '<div class="photo-thumb"><a href="'+p.src+'" target="_blank"><img src="'+p.src+'" style="width:90px;height:90px;border-radius:8px;object-fit:cover;border:1px solid var(--rule);display:block;"/></a>'+
+      (state.role==='responsable'?'<button class="photo-del" data-action="delete-photo" data-id="'+d.id+'" data-photo-idx="'+pi+'" title="Supprimer cette photo">✕</button>':'')+
+    '</div>';
+  }).join('')+'</div></div>';
   if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderResponsableApp(){
@@ -1299,6 +1334,10 @@ else if(action==='toggle-modifier'){state.showModifier=!state.showModifier;rende
 else if(action==='start-voice'){startVoice();}
 else if(action==='take-photo'){document.getElementById('cam-input').click();}
 else if(action==='clear-photo'){state.pendingPhoto=null;var noteEl2=document.getElementById('f-note');if(noteEl2)state.pendingNote=noteEl2.value;render();}
+else if(action==='delete-photo'){
+  var photoIdx=parseInt(el.getAttribute('data-photo-idx'),10);
+  if(!isNaN(photoIdx)&&confirm('Supprimer cette photo ?')){deleteDeliveryPhoto(id,photoIdx);}
+}
 else if(action==='clear-sig'){clearSignature();}
 else if(action==='clear-sig-cam'){
   var camIdClear=el.getAttribute('data-cam-id');
@@ -1315,7 +1354,8 @@ else if(action==='submit-point'){
   var note=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
   var photo=state.pendingPhoto||null;
   var signature=getSignatureData()||null;
-  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note,photo:photo,signature:signature});
+  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note,signature:signature});
+  if(photo)addDeliveryPhoto(id,photo);
   state.pendingPhoto=null;
   state.pendingNote='';
   if(state.role==='livreur'){state.selectedId=null;render();}
