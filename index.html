@@ -476,40 +476,31 @@ function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/<
 function mapsUrl(a){return'https://maps.google.com/maps?daddr='+encodeURIComponent(a);}
 function getTrackingUrl(deliveryId,date){return location.origin+location.pathname+'?track='+encodeURIComponent(deliveryId)+'&d='+encodeURIComponent(date);}
 function shareWhatsApp(text){window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');}
+function extractClientPhone(instructions){
+  if(!instructions)return'';
+  var m=instructions.match(/T[eé]l\s*[:\-]\s*([\d][\d\s\-\.]{8,14})/i);
+  return m?m[1].trim():'';
+}
 function buildDeliveryBLText(d){
   var meta=STATUS_META[d.status];
-  var items=d.ref?parseItems(d.ref):[];
-  var lines=['🌾 *Fournil de Jean* — Bon de livraison'];
+  var phone=extractClientPhone(d.instructions);
+  var lines=['🌾 *Fournil de Jean*'];
   lines.push('');
   lines.push('*Client :* '+d.client);
-  lines.push('*Adresse :* '+d.address);
-  lines.push('*Heure :* '+(d.time||''));
-  if(items.length){
-    lines.push('');
-    lines.push('*Produits :*');
-    items.forEach(function(it){lines.push('• '+it.name+(it.qty>1?' x'+it.qty:''));});
-  }
-  if(d.instructions){lines.push('');lines.push('*Instructions :* '+d.instructions);}
-  if(d.note){lines.push('');lines.push('*Constats :* '+d.note);}
+  if(phone)lines.push('*Tel :* '+phone);
   lines.push('');
   var statusLine='*STATUT : '+meta.label.toUpperCase()+'*';
   if(d.status==='delivered'&&d.deliveredAt)statusLine+=' à '+new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
   lines.push(statusLine);
-  lines.push('');
-  lines.push('🔗 Suivi en direct : '+getTrackingUrl(d.id,state.date));
+  if(d.note){lines.push('');lines.push('*Constat :* '+d.note);}
   return lines.join('\n');
 }
 function shareDelivery(d){
   var text=buildDeliveryBLText(d);
   var photos=getDeliveryPhotos(d);
-  // Ne jamais melanger types de fichiers dans un seul partage : WhatsApp ignore/echoue souvent
-  // quand on combine images + PDF. On priorise le PDF du BL s'il existe, sinon les photos.
   var fileSources=[];
-  if(d.blPdf){
-    fileSources=[{src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'}];
-  } else if(photos.length){
-    fileSources=photos.map(function(p,i){return {src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'};});
-  }
+  if(d.blPdf) fileSources.push({src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'});
+  photos.forEach(function(p,i){fileSources.push({src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'});});
   if(navigator.share && fileSources.length){
     Promise.all(fileSources.map(function(fs){return fetch(fs.src).then(function(r){return r.blob();});}))
       .then(function(blobs){
@@ -1416,7 +1407,7 @@ function renderLivreurApp(){
           '<canvas id="sig-cam-'+cam.id+'" class="sig-canvas" style="height:80px;"></canvas>')+
         (state._justSignedCamId===cam.id?'<div style="margin-top:8px;padding:8px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:12px;font-weight:700;text-align:center;">✅ Vous avez signé !</div>':'')+
       '</div>'+
-      '<button class="btn-save-camion" data-action="save-camion" data-cam-id="'+cam.id+'">Enregistrer</button>'+
+      '<button class="btn-save-camion" data-action="save-camion" data-cam-id="'+cam.id+'">'+(state._justSavedCamId===cam.id?'✅ Enregistré !':'Enregistrer')+'</button>'+
     '</div>';
   });
   html+='<button style="width:100%;padding:10px;margin-top:6px;border-radius:8px;border:1.5px dashed var(--teal);background:none;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;" data-action="add-camion">+ Ajouter un camion</button>';
@@ -1443,8 +1434,6 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       var curLiv=state.livreurs.find(function(l){return l.name===d.livreur;});
       if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';
-      if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
       html+='<div class="divider"></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:'+(state.showModifier?'12':'0')+'px;" data-action="toggle-modifier">'+(state.showModifier?'▲ Fermer':'✏️ Modifier')+'</button>';
       if(state.showModifier){
@@ -1460,6 +1449,8 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
       html+='</div>';
     }
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';
+    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
     // Constats + prise de photo : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
@@ -1623,8 +1614,9 @@ if(action==='save-camion'){
     state._justSignedCamId=camIdSave;
     setTimeout(function(){if(state._justSignedCamId===camIdSave){state._justSignedCamId=null;render();}},3000);
   }
-  el.textContent='✅ Enregistré !';
-  setTimeout(function(){render();},1200);
+  state._justSavedCamId=camIdSave;
+  setTimeout(function(){if(state._justSavedCamId===camIdSave){state._justSavedCamId=null;render();}},1800);
+  render(); // le cadre de signature s'efface immediatement (remplace par l'image)
   return;
 }
 if(action==='open-livreurs'){state.showLivreurs=true;render();return;}
