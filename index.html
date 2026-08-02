@@ -499,13 +499,15 @@ function buildDeliveryBLText(d){
   lines.push('🔗 Suivi en direct : '+getTrackingUrl(d.id,state.date));
   return lines.join('\n');
 }
-function shareDeliveryWhatsApp(d){
+function shareDelivery(d){
   var text=buildDeliveryBLText(d);
   var photos=getDeliveryPhotos(d);
-  if(navigator.share && photos.length){
-    Promise.all(photos.map(function(p){return fetch(p.src).then(function(r){return r.blob();});}))
+  var fileSources=photos.map(function(p,i){return {src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'};});
+  if(d.blPdf) fileSources.push({src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'});
+  if(navigator.share && fileSources.length){
+    Promise.all(fileSources.map(function(fs){return fetch(fs.src).then(function(r){return r.blob();});}))
       .then(function(blobs){
-        var files=blobs.map(function(b,i){return new File([b],'photo'+(i+1)+'.jpg',{type:'image/jpeg'});});
+        var files=blobs.map(function(b,i){return new File([b],fileSources[i].name,{type:fileSources[i].type});});
         if(navigator.canShare && navigator.canShare({files:files})){
           return navigator.share({title:'Livraison '+d.client, text:text, files:files});
         }
@@ -523,6 +525,14 @@ function shareDeliveryWhatsApp(d){
   } else {
     shareWhatsApp(text);
   }
+}
+function arrayBufferToBase64(buffer){
+  var bytes=new Uint8Array(buffer);
+  var chunk=0x8000, binary='';
+  for(var i=0;i<bytes.length;i+=chunk){
+    binary+=String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
+  }
+  return 'data:application/pdf;base64,'+btoa(binary);
 }
 function convertDate(d){
   if(!d)return'';
@@ -889,7 +899,7 @@ function parsePdfText(text){
 
   return result;
 }
-function readPdf(file){if(!window.pdfjsLib){state.pdfParsing=false;state.errorMsg='Lecture PDF indisponible (bibliotheque non chargee). Reessayez plus tard.';render();return;}state.pdfParsing=true;state.pdfData=null;render();var reader=new FileReader();reader.onload=function(e){pdfjsLib.getDocument({data:new Uint8Array(e.target.result)}).promise.then(function(pdf){var pages=[];for(var p=1;p<=pdf.numPages;p++)pages.push(p);Promise.all(pages.map(function(p){return pdf.getPage(p).then(function(pg){return pg.getTextContent().then(function(c){return c.items.map(function(it){return it.str;}).join('\n');});});})).then(function(texts){var parsed=parsePdfText(texts.join('\n'));state.pdfData=parsed;state.pdfParsing=false;render();setTimeout(function(){if(document.getElementById('f-client')&&parsed.client)document.getElementById('f-client').value=parsed.client;if(document.getElementById('f-address')&&parsed.address)document.getElementById('f-address').value=parsed.address;if(document.getElementById('f-ref')&&parsed.ref)document.getElementById('f-ref').value=parsed.ref;if(document.getElementById('f-instructions')&&parsed.instructions)document.getElementById('f-instructions').value=parsed.instructions;if(document.getElementById('f-time')&&parsed.time)document.getElementById('f-time').value=parsed.time;if(document.getElementById('f-date')&&parsed.date)document.getElementById('f-date').value=convertDate(parsed.date);},50);});}).catch(function(){state.pdfParsing=false;state.errorMsg='Erreur lecture PDF.';render();});};reader.readAsArrayBuffer(file);}
+function readPdf(file){if(!window.pdfjsLib){state.pdfParsing=false;state.errorMsg='Lecture PDF indisponible (bibliotheque non chargee). Reessayez plus tard.';render();return;}state.pdfParsing=true;state.pdfData=null;render();var reader=new FileReader();reader.onload=function(e){var originalPdfBase64=arrayBufferToBase64(e.target.result);pdfjsLib.getDocument({data:new Uint8Array(e.target.result)}).promise.then(function(pdf){var pages=[];for(var p=1;p<=pdf.numPages;p++)pages.push(p);Promise.all(pages.map(function(p){return pdf.getPage(p).then(function(pg){return pg.getTextContent().then(function(c){return c.items.map(function(it){return it.str;}).join('\n');});});})).then(function(texts){var parsed=parsePdfText(texts.join('\n'));parsed.originalPdfBase64=originalPdfBase64;state.pdfData=parsed;state.pdfParsing=false;render();setTimeout(function(){if(document.getElementById('f-client')&&parsed.client)document.getElementById('f-client').value=parsed.client;if(document.getElementById('f-address')&&parsed.address)document.getElementById('f-address').value=parsed.address;if(document.getElementById('f-ref')&&parsed.ref)document.getElementById('f-ref').value=parsed.ref;if(document.getElementById('f-instructions')&&parsed.instructions)document.getElementById('f-instructions').value=parsed.instructions;if(document.getElementById('f-time')&&parsed.time)document.getElementById('f-time').value=parsed.time;if(document.getElementById('f-date')&&parsed.date)document.getElementById('f-date').value=convertDate(parsed.date);},50);});}).catch(function(){state.pdfParsing=false;state.errorMsg='Erreur lecture PDF.';render();});};reader.readAsArrayBuffer(file);}
 
 function load(date){
   state.loading=true;state.camions=loadCamions(date);render();
@@ -932,7 +942,7 @@ function persist(list){
   }
   doFbSave();
 }
-function addDelivery(data){var entry={id:genId(),client:data.client,address:data.address,time:data.time,ref:data.ref||'',instructions:data.instructions||'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',createdAt:new Date().toISOString()};persist(state.deliveries.concat([entry]));state.showAdd=false;state.pdfData=null;render();}
+function addDelivery(data){var entry={id:genId(),client:data.client,address:data.address,time:data.time,ref:data.ref||'',instructions:data.instructions||'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',blPdf:data.blPdf||null,createdAt:new Date().toISOString()};persist(state.deliveries.concat([entry]));state.showAdd=false;state.pdfData=null;render();}
 function assignLivreur(id,livreurId){
   var liv=getLivreurById(livreurId);
   persist(state.deliveries.map(function(d){
@@ -1352,7 +1362,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       var curLiv=state.livreurs.find(function(l){return l.name===d.livreur;});
       if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="share-whatsapp" data-id="'+d.id+'">📤 Partager le suivi (WhatsApp)</button>';
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';
       html+='<div class="divider"></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:'+(state.showModifier?'12':'0')+'px;" data-action="toggle-modifier">'+(state.showModifier?'▲ Fermer':'✏️ Modifier')+'</button>';
       if(state.showModifier){
@@ -1376,7 +1386,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';html+='<button class="btn-outline" data-action="share-whatsapp" data-id="'+d.id+'">📤 WhatsApp</button>';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';html+='<button class="btn-outline" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderResponsableApp(){
   var total=state.deliveries.length,
@@ -1538,7 +1548,7 @@ if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
 }return;}
 if(action==='export-excel'){exportExcel();return;}
 if(action==='gen-invoice'){var deliv=state.deliveries.find(function(x){return x.id===id;});if(deliv)generateInvoice(deliv);return;}
-if(action==='share-whatsapp'){var delivSh=state.deliveries.find(function(x){return x.id===id;});if(delivSh)shareDeliveryWhatsApp(delivSh);return;}
+if(action==='share-delivery'){var delivSh=state.deliveries.find(function(x){return x.id===id;});if(delivSh)shareDelivery(delivSh);return;}
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
 if(action==='reassign-livreur'){
   // Réassigner sans pointer — garder en attente
@@ -1606,7 +1616,7 @@ else if(action==='submit-add'){
     if(pn) prods.push(pq?pn+' x'+pq:pn);
   }
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
-  addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv});
+  addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv,blPdf:state.pdfData?state.pdfData.originalPdfBase64:null});
 }
 else if(action==='select'){state.selectedId=id;state.pendingOutcome='delivered';state.pendingNote='';if(state.role!=='livreur')state.selectedLivreurId='';render();}
 else if(action==='close-detail'){
