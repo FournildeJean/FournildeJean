@@ -459,7 +459,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,pendingPhoto:null,showRapport:false,showModifier:false};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -485,9 +485,9 @@ function handlePhoto(e){
   if(!file) return;
   var reader=new FileReader();
   reader.onload=function(ev){
-    state.pendingPhoto=ev.target.result;
     var noteEl=document.getElementById('f-note');
     if(noteEl) state.pendingNote=noteEl.value;
+    if(state.selectedId) addDeliveryPhoto(state.selectedId, ev.target.result); // sauvegarde immediate dans la galerie
     render();
   };
   reader.readAsDataURL(file);
@@ -1071,7 +1071,7 @@ function renderLivreurApp(){
       '</div>'+
       '<div class="sig-wrap" style="margin-top:10px;">'+
         '<div class="sig-label"><span>✍️ Signature</span>'+
-          (cam.signature?'':'<button class="btn-sig-clear" data-action="clear-sig-cam" data-cam-id="'+cam.id+'">Effacer</button>')+'</div>'+
+          '<button class="btn-sig-clear" data-action="'+(cam.signature?'erase-cam-signature':'clear-sig-cam')+'" data-cam-id="'+cam.id+'">Effacer</button></div>'+
         (cam.signature?
           '<img src="'+cam.signature+'" style="width:100%;max-height:70px;object-fit:contain;border:1.5px solid var(--green);border-radius:8px;background:#fff;"/>':
           '<canvas id="sig-cam-'+cam.id+'" class="sig-canvas" style="height:80px;"></canvas>')+
@@ -1116,9 +1116,12 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
       var existingPhotos=getDeliveryPhotos(d);
-      if(existingPhotos.length)html+='<div class="field-label" style="margin-top:10px;">🖼️ Photo(s) déjà enregistrée(s) ('+existingPhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+existingPhotos.map(function(p){return'<a href="'+p.src+'" target="_blank"><img src="'+p.src+'" style="width:56px;height:56px;border-radius:6px;object-fit:cover;border:1px solid var(--rule);display:block;"/></a>';}).join('')+'</div>';
-      html+='<button id="btn-camera" class="btn-camera" style="margin-top:10px;" data-action="take-photo">'+(state.pendingPhoto?'📷 Changer la photo':'📷 Prendre une photo constat')+'</button>';
-      if(state.pendingPhoto) html+='<img class="photo-preview" src="'+state.pendingPhoto+'"/><button class="btn-sig-clear" data-action="clear-photo" style="display:block;margin-top:4px;">✕ Supprimer</button>';
+      html+='<div class="field-label" style="margin-top:10px;">🖼️ Photo constat'+(existingPhotos.length?' ('+existingPhotos.length+')':'')+'</div>';
+      if(existingPhotos.length)html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;margin-bottom:8px;">'+existingPhotos.map(function(p,pi){
+        return '<div class="photo-thumb"><a href="'+p.src+'" target="_blank"><img src="'+p.src+'" style="width:64px;height:64px;border-radius:6px;object-fit:cover;border:1px solid var(--rule);display:block;"/></a>'+
+          '<button class="photo-del" data-action="delete-photo" data-id="'+d.id+'" data-photo-idx="'+pi+'" title="Supprimer cette photo">✕</button></div>';
+      }).join('')+'</div>';
+      html+='<button id="btn-camera" class="btn-camera" style="margin-top:4px;" data-action="take-photo">📷 '+(existingPhotos.length?'Ajouter une autre photo':'Prendre une photo constat')+'</button>';
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
@@ -1342,13 +1345,12 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv});
 }
-else if(action==='select'){state.selectedId=id;state.pendingOutcome='delivered';state.pendingPhoto=null;state.pendingNote='';if(state.role!=='livreur')state.selectedLivreurId='';render();}
-else if(action==='close-detail'){state.selectedId=null;state.modifyMode=false;state.showModifier=false;state.pendingPhoto=null;state.pendingNote='';render();}
+else if(action==='select'){state.selectedId=id;state.pendingOutcome='delivered';state.pendingNote='';if(state.role!=='livreur')state.selectedLivreurId='';render();}
+else if(action==='close-detail'){state.selectedId=null;state.modifyMode=false;state.showModifier=false;state.pendingNote='';render();}
 else if(action==='set-outcome'){state.pendingOutcome=el.getAttribute('data-key');render();}
 else if(action==='toggle-modifier'){state.showModifier=!state.showModifier;render();}
 else if(action==='start-voice'){startVoice();}
 else if(action==='take-photo'){document.getElementById('cam-input').click();}
-else if(action==='clear-photo'){state.pendingPhoto=null;var noteEl2=document.getElementById('f-note');if(noteEl2)state.pendingNote=noteEl2.value;render();}
 else if(action==='delete-photo'){
   var photoIdx=parseInt(el.getAttribute('data-photo-idx'),10);
   if(!isNaN(photoIdx)&&confirm('Supprimer cette photo ?')){deleteDeliveryPhoto(id,photoIdx);}
@@ -1359,14 +1361,15 @@ else if(action==='clear-sig-cam'){
   var sc=camIdClear?document.getElementById('sig-cam-'+camIdClear):null;
   if(sc){var ctx=sc.getContext('2d');ctx.clearRect(0,0,sc.width,sc.height);sc.classList.remove('signed');}
 }
+else if(action==='erase-cam-signature'){
+  var camIdErase=el.getAttribute('data-cam-id');
+  if(camIdErase&&confirm('Effacer cette signature ?')){upsertCamionById(camIdErase,{signature:null});render();}
+}
 else if(action==='submit-point'){
   var selId=state.role==='livreur'?state.livreurId:state.selectedLivreurId;
   var liv=getLivreurById(selId);
   var note=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
-  var photo=state.pendingPhoto||null;
   pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note});
-  if(photo)addDeliveryPhoto(id,photo);
-  state.pendingPhoto=null;
   state.pendingNote='';
   if(state.role==='livreur'){state.selectedId=null;render();}
   state.modifyMode=false;
