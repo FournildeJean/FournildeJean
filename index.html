@@ -74,7 +74,8 @@ fbListenCollection('fdj-livreurs', function(data) {
 function listenTodayDeliveries(date) {
   return onSnapshot(doc(db, 'fdj-tournees', date), function(snap) {
     if(snap.exists() && typeof window.onFbDeliveries === 'function') {
-      window.onFbDeliveries(snap.data().deliveries || []);
+      var data = snap.data();
+      window.onFbDeliveries(data.deliveries || [], data.updatedAt || null);
     }
   });
 }
@@ -84,7 +85,8 @@ window.listenTodayDeliveries = listenTodayDeliveries;
 function listenCamions(date) {
   return onSnapshot(doc(db, 'fdj-camions', date), function(snap) {
     if(snap.exists() && typeof window.onFbCamions === 'function') {
-      window.onFbCamions(snap.data().camions || []);
+      var data = snap.data();
+      window.onFbCamions(data.camions || [], data.updatedAt || null);
     }
   });
 }
@@ -439,10 +441,17 @@ function saveLivreurs(l){
 }
 function loadCamions(date){try{var r=localStorage.getItem('fdj-camions:'+date);return r?JSON.parse(r):[];}catch(e){return[];}}
 function saveCamions(date,l){
+  var ts=new Date().toISOString();
+  if(date===state.date)state._camionsTs=ts;
   try{localStorage.setItem('fdj-camions:'+date,JSON.stringify(l));}catch(e){}
-  if(window.fbReady){
-    window.fbSave('fdj-camions', date, {camions:l, date:date, updatedAt:new Date().toISOString()});
+  function doFbSave(){
+    if(window.fbReady){
+      window.fbSave('fdj-camions', date, {camions:l, date:date, updatedAt:ts});
+    } else {
+      setTimeout(doFbSave, 500);
+    }
   }
+  doFbSave();
 }
 // Lire les images immédiatement (img elements sont avant ce script dans le DOM)
 var _s=document.getElementById('img-save');
@@ -802,33 +811,40 @@ function parsePdfText(text){
 function readPdf(file){if(!window.pdfjsLib){state.pdfParsing=false;state.errorMsg='Lecture PDF indisponible (bibliotheque non chargee). Reessayez plus tard.';render();return;}state.pdfParsing=true;state.pdfData=null;render();var reader=new FileReader();reader.onload=function(e){pdfjsLib.getDocument({data:new Uint8Array(e.target.result)}).promise.then(function(pdf){var pages=[];for(var p=1;p<=pdf.numPages;p++)pages.push(p);Promise.all(pages.map(function(p){return pdf.getPage(p).then(function(pg){return pg.getTextContent().then(function(c){return c.items.map(function(it){return it.str;}).join('\n');});});})).then(function(texts){var parsed=parsePdfText(texts.join('\n'));state.pdfData=parsed;state.pdfParsing=false;render();setTimeout(function(){if(document.getElementById('f-client')&&parsed.client)document.getElementById('f-client').value=parsed.client;if(document.getElementById('f-address')&&parsed.address)document.getElementById('f-address').value=parsed.address;if(document.getElementById('f-ref')&&parsed.ref)document.getElementById('f-ref').value=parsed.ref;if(document.getElementById('f-instructions')&&parsed.instructions)document.getElementById('f-instructions').value=parsed.instructions;if(document.getElementById('f-time')&&parsed.time)document.getElementById('f-time').value=parsed.time;if(document.getElementById('f-date')&&parsed.date)document.getElementById('f-date').value=convertDate(parsed.date);},50);});}).catch(function(){state.pdfParsing=false;state.errorMsg='Erreur lecture PDF.';render();});};reader.readAsArrayBuffer(file);}
 
 function load(date){
-  state.loading=true;state.camions=loadCamions(date);render();
+  state.loading=true;state.camions=loadCamions(date);state._deliveriesTs=null;state._camionsTs=null;render();
   // Local d'abord pour affichage rapide
   try{var raw=localStorage.getItem('fdj-tournee:'+date);state.deliveries=raw?(JSON.parse(raw)||[]):[];}catch(e){state.deliveries=[];}
   state.loading=false;render();
   // Firebase ensuite — écoute temps réel
   if(window.fbReady){
     if(window._unsubDeliveries) window._unsubDeliveries();
-    window.onFbDeliveries=function(deliveries){
+    window.onFbDeliveries=function(deliveries,updatedAt){
+      if(updatedAt&&state._deliveriesTs&&updatedAt<state._deliveriesTs)return; // instantané perime, on l'ignore
       state.deliveries=deliveries;
+      if(updatedAt)state._deliveriesTs=updatedAt;
       try{localStorage.setItem('fdj-tournee:'+date,JSON.stringify(deliveries));}catch(e){}
       render();
     };
     window._unsubDeliveries=window.listenTodayDeliveries(date);
     if(window._unsubCamions) window._unsubCamions();
-    window.onFbCamions=function(camions){
+    window.onFbCamions=function(camions,updatedAt){
+      if(updatedAt&&state._camionsTs&&updatedAt<state._camionsTs)return; // instantané perime, on l'ignore
       state.camions=camions;
+      if(updatedAt)state._camionsTs=updatedAt;
       try{localStorage.setItem('fdj-camions:'+date,JSON.stringify(camions));}catch(e){}
+      render();
     };
     window._unsubCamions=window.listenCamions(date);
   }
 }
 function persist(list){
   state.deliveries=list;
+  var ts=new Date().toISOString();
+  state._deliveriesTs=ts;
   try{localStorage.setItem('fdj-tournee:'+state.date,JSON.stringify(list));}catch(e){state.errorMsg='Sauvegarde echouee.';}
   function doFbSave(){
     if(window.fbReady){
-      window.fbSave('fdj-tournees', state.date, {deliveries:list, date:state.date, updatedAt:new Date().toISOString()});
+      window.fbSave('fdj-tournees', state.date, {deliveries:list, date:state.date, updatedAt:ts});
     } else {
       setTimeout(doFbSave, 500); // retry si Firebase pas prêt
     }
@@ -1055,10 +1071,9 @@ function renderLivreurApp(){
       '</div>'+
       '<div class="sig-wrap" style="margin-top:10px;">'+
         '<div class="sig-label"><span>✍️ Signature</span>'+
-          '<button class="btn-sig-clear" data-action="clear-sig-cam" data-cam-id="'+cam.id+'">Effacer</button></div>'+
+          (cam.signature?'':'<button class="btn-sig-clear" data-action="clear-sig-cam" data-cam-id="'+cam.id+'">Effacer</button>')+'</div>'+
         (cam.signature?
-          '<img src="'+cam.signature+'" style="width:100%;max-height:70px;object-fit:contain;border:1.5px solid var(--green);border-radius:8px;background:#fff;"/>'+
-          '<button class="btn-sig-clear" data-action="resign-cam" data-cam-id="'+cam.id+'" style="margin-top:4px;display:block;">↺ Resigner</button>':
+          '<img src="'+cam.signature+'" style="width:100%;max-height:70px;object-fit:contain;border:1.5px solid var(--green);border-radius:8px;background:#fff;"/>':
           '<canvas id="sig-cam-'+cam.id+'" class="sig-canvas" style="height:80px;"></canvas>')+
       '</div>'+
       '<button class="btn-save-camion" data-action="save-camion" data-cam-id="'+cam.id+'">Enregistrer</button>'+
@@ -1344,17 +1359,12 @@ else if(action==='clear-sig-cam'){
   var sc=camIdClear?document.getElementById('sig-cam-'+camIdClear):null;
   if(sc){var ctx=sc.getContext('2d');ctx.clearRect(0,0,sc.width,sc.height);sc.classList.remove('signed');}
 }
-else if(action==='resign-cam'){
-  var camIdResign=el.getAttribute('data-cam-id');
-  if(camIdResign){upsertCamionById(camIdResign,{signature:null});render();}
-}
 else if(action==='submit-point'){
   var selId=state.role==='livreur'?state.livreurId:state.selectedLivreurId;
   var liv=getLivreurById(selId);
   var note=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
   var photo=state.pendingPhoto||null;
-  var signature=getSignatureData()||null;
-  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note,signature:signature});
+  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note});
   if(photo)addDeliveryPhoto(id,photo);
   state.pendingPhoto=null;
   state.pendingNote='';
@@ -1367,7 +1377,7 @@ else if(action==='delete')deleteDelivery(id);
 });
 document.getElementById('app').addEventListener('change',function(e){if(e.target.id==='f-livreur-select'){state.selectedLivreurId=e.target.value;render();}});
 document.getElementById('app').addEventListener('input',function(e){if(e.target.classList.contains('time-txt')){var pos=e.target.selectionStart;var raw=e.target.value.replace(/[^0-9]/g,'').slice(0,4);var fmt=raw.length>=3?raw.slice(0,2)+':'+raw.slice(2,4):raw;e.target.value=fmt;try{e.target.setSelectionRange(pos>2?pos+1:pos,pos>2?pos+1:pos);}catch(x){}}if(e.target.id==='f-note'){state.pendingNote=e.target.value;}});
-document.getElementById('app').addEventListener('blur',function(e){if(e.target.classList.contains('camion-field')){var lid=e.target.getAttribute('data-cam-liv');var field=e.target.getAttribute('data-cam-field');if(lid&&field){var upd={};upd[field]=normalizeTime(e.target.value.trim())||e.target.value.trim();upsertCamion(lid,upd);}}},true);
+document.getElementById('app').addEventListener('blur',function(e){if(e.target.classList.contains('camion-field')){saveCamionFields();}},true);
 document.getElementById('app').addEventListener('keydown',function(e){if(e.key!=='Enter')return;var btn=null;if(state.screen==='livreur-name')btn=document.querySelector('[data-action="check-livreur-name"]');else if(state.screen==='livreur-password')btn=document.querySelector('[data-action="do-livreur-pwd-check"]');else if(state.screen==='livreur-new-password')btn=document.querySelector('[data-action="do-livreur-new-pwd"]');else if(state.screen==='password')btn=document.querySelector('[data-action="do-resp-login"]');if(btn)btn.click();});
 document.getElementById('pdf-input').addEventListener('change',function(e){var file=e.target.files&&e.target.files[0];if(file)readPdf(file);e.target.value='';});
 render();
