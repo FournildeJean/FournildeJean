@@ -408,6 +408,7 @@ if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudf
 "use strict";
 var MOT_DE_PASSE="Mohcine";
 var TVA_RATE=0.055,PRIX_HT=1.00;
+var APP_VERSION='v2026-08-02.1';
 var STATUS_META={
   pending:    {label:'En attente',ind:'ind-pending',    sp:'sp-pending',    oc:'oc-amber',      fg:'#C87010',bg:'#FEF4E6'},
   in_progress:{label:'En cours',  ind:'ind-inprogress', sp:'sp-inprogress', oc:'oc-inprogress', fg:'#1E6FA8',bg:'#E8F2FA'},
@@ -1371,7 +1372,7 @@ function renderLivreurApp(){
       '<span class="wheat-icon">🌾</span>'+
     '</div>'+
   '</div></div>';
-  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Vue livreur</div>';
+  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Vue livreur &nbsp;<span style="font-size:9px;color:var(--ink-3);opacity:.6;">'+APP_VERSION+'</span></div>';
   if(state.errorMsg)html+='<div class="error-box">'+esc(state.errorMsg)+'</div>';
   html+='<div class="date-row">'+
     '<button class="date-arr" data-action="prev-day">&#8249;</button>'+
@@ -1484,7 +1485,7 @@ function renderResponsableApp(){
     '<button class="resp-action resp-action-quit" data-action="logout"><span class="resp-action-icon">🚪</span><span class="resp-action-lbl">Quitter</span></button>'+
   '</div>'+
   '</div>';
-  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Accès complet &nbsp;<span style="font-size:10px;color:var(--green);">⬤ FourniLive</span></div>';
+  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Accès complet &nbsp;<span style="font-size:10px;color:var(--green);">⬤ FourniLive</span> &nbsp;<span style="font-size:9px;color:var(--ink-3);opacity:.6;">'+APP_VERSION+'</span></div>';
   if(state.selMode){
     var nbSel=Object.keys(state.selected).length;
     html+='<div class="sel-bar"><span class="sel-count">'+nbSel+' sélectionnée'+(nbSel>1?'s':'')+'</span>'+
