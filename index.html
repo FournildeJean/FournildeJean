@@ -459,7 +459,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -469,6 +469,19 @@ function formatDateLabel(s){var p=s.split('-').map(Number),dt=new Date(p[0],p[1]
 function genId(){return 'd_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function mapsUrl(a){return'https://maps.google.com/maps?daddr='+encodeURIComponent(a);}
+function getTrackingUrl(deliveryId,date){return location.origin+location.pathname+'?track='+encodeURIComponent(deliveryId)+'&d='+encodeURIComponent(date);}
+function shareWhatsApp(text){window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');}
+function shareDeliveryWhatsApp(d){
+  var meta=STATUS_META[d.status];
+  var lines=['🌾 Fournil de Jean — Livraison'];
+  lines.push('Client : '+d.client);
+  lines.push('Heure : '+(d.time||''));
+  lines.push('Statut : '+meta.label);
+  if(d.status==='delivered'&&d.deliveredAt)lines.push('Livré à '+new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}));
+  lines.push('');
+  lines.push('Suivi en direct : '+getTrackingUrl(d.id,state.date));
+  shareWhatsApp(lines.join('\n'));
+}
 function convertDate(d){
   if(!d)return'';
   var p=d.split(/[\/\-]/);
@@ -990,6 +1003,123 @@ function generateRapport(dateFrom, dateTo){
   else alert('Autorisez les popups pour générer le rapport.');
 }
 
+function computeDashboardStats(dateFrom, dateTo){
+  var days=[], perLivreur={}, totals={total:0,delivered:0,absent:0,refused:0,incident:0,pending:0};
+  var d=new Date(dateFrom+'T00:00:00'), end=new Date(dateTo+'T00:00:00');
+  while(d<=end){
+    var dk=toLocalISODate(d);
+    var list=[];
+    try{var raw=localStorage.getItem('fdj-tournee:'+dk);if(raw)list=JSON.parse(raw)||[];}catch(e){}
+    var dayCounts={date:dk,total:list.length,delivered:0,issues:0};
+    list.forEach(function(del){
+      totals.total++;
+      if(totals[del.status]!==undefined)totals[del.status]++;
+      if(del.status==='delivered')dayCounts.delivered++;
+      if(['absent','refused','incident'].indexOf(del.status)!==-1)dayCounts.issues++;
+      if(del.livreur){
+        if(!perLivreur[del.livreur])perLivreur[del.livreur]={total:0,delivered:0,issues:0};
+        perLivreur[del.livreur].total++;
+        if(del.status==='delivered')perLivreur[del.livreur].delivered++;
+        if(['absent','refused','incident'].indexOf(del.status)!==-1)perLivreur[del.livreur].issues++;
+      }
+    });
+    days.push(dayCounts);
+    d.setDate(d.getDate()+1);
+  }
+  return {days:days, totals:totals, perLivreur:perLivreur};
+}
+function svgBarChart(days, width, height){
+  width=width||560;height=height||140;
+  var max=Math.max.apply(null,days.map(function(d){return d.total;}).concat([1]));
+  var barW=Math.max(8,Math.min(40,(width-20)/days.length-6));
+  var gap=(width-20-barW*days.length)/(Math.max(1,days.length-1));
+  var svg='<svg viewBox="0 0 '+width+' '+(height+22)+'" style="width:100%;height:auto;font-family:sans-serif;">';
+  days.forEach(function(dday,i){
+    var x=10+i*(barW+gap);
+    var hTotal=Math.round((dday.total/max)*(height-10));
+    var hDelivered=Math.round((dday.delivered/max)*(height-10));
+    var hIssues=Math.round((dday.issues/max)*(height-10));
+    var y=height-hTotal;
+    svg+='<rect x="'+x+'" y="'+y+'" width="'+barW+'" height="'+hTotal+'" fill="#EDE4D3" rx="2"/>';
+    if(hDelivered)svg+='<rect x="'+x+'" y="'+(height-hDelivered)+'" width="'+barW+'" height="'+hDelivered+'" fill="#2A7A3A" rx="2"/>';
+    if(hIssues)svg+='<rect x="'+x+'" y="'+(height-hDelivered-hIssues)+'" width="'+barW+'" height="'+hIssues+'" fill="#C8281A" rx="2"/>';
+    var lbl=dday.date.slice(8,10)+'/'+dday.date.slice(5,7);
+    svg+='<text x="'+(x+barW/2)+'" y="'+(height+16)+'" font-size="9" fill="#8A7A68" text-anchor="middle">'+lbl+'</text>';
+  });
+  svg+='</svg>';
+  return svg;
+}
+function renderDashboardModal(){
+  if(!state.showDashboard) return '';
+  var today=toLocalISODate(new Date());
+  var weekAgo=toLocalISODate(new Date(Date.now()-6*24*3600*1000));
+  var stats=state._dashboardStats;
+  var body='';
+  if(stats){
+    var t=stats.totals;
+    var rate=t.total?Math.round((t.delivered/t.total)*100):0;
+    body+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0;">'+
+      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;">'+t.total+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Total</div></div>'+
+      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#2A7A3A;">'+rate+'%</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Taux de livraison</div></div>'+
+      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#C87010;">'+t.pending+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">En attente</div></div>'+
+      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#C8281A;">'+(t.absent+t.refused+t.incident)+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Incidents</div></div>'+
+    '</div>';
+    body+='<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;margin-bottom:16px;">'+svgBarChart(stats.days)+'</div>';
+    var livKeys=Object.keys(stats.perLivreur);
+    if(livKeys.length){
+      body+='<div style="font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Par livreur</div>';
+      livKeys.sort(function(a,b){return stats.perLivreur[b].total-stats.perLivreur[a].total;}).forEach(function(name){
+        var lv=stats.perLivreur[name];
+        body+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;">'+
+          '<span>👤 '+esc(name)+'</span><span style="color:var(--ink-3);">'+lv.delivered+'/'+lv.total+' livrées'+(lv.issues?' · <span style="color:#C8281A;">'+lv.issues+' incident'+(lv.issues>1?'s':'')+'</span>':'')+'</span></div>';
+      });
+    }
+  }
+  return '<div class="rapport-modal" data-action="close-dashboard">'+
+    '<div class="rapport-card" data-action="noop">'+
+      '<div class="rapport-title">📊 Tableau de bord</div>'+
+      '<div class="rapport-row">'+
+        '<div class="rapport-field"><div class="rapport-label">Date début</div><input id="db-from" type="date" class="rapport-input" value="'+weekAgo+'"/></div>'+
+        '<div class="rapport-field"><div class="rapport-label">Date fin</div><input id="db-to" type="date" class="rapport-input" value="'+today+'"/></div>'+
+      '</div>'+
+      '<div class="rapport-btns">'+
+        '<button class="btn-rapport-cancel" data-action="close-dashboard">Fermer</button>'+
+        '<button class="btn-rapport-go" data-action="gen-dashboard">📊 Actualiser</button>'+
+      '</div>'+
+      body+
+      (stats?'<button class="btn-outline" style="width:100%;margin-top:6px;padding:11px;" data-action="print-dashboard">🖨 Version imprimable / PDF</button>':'')+
+    '</div>'+
+  '</div>';
+}
+function printDashboard(dateFrom, dateTo){
+  var stats=computeDashboardStats(dateFrom,dateTo);
+  var t=stats.totals;
+  var rate=t.total?Math.round((t.delivered/t.total)*100):0;
+  var livRows=Object.keys(stats.perLivreur).sort(function(a,b){return stats.perLivreur[b].total-stats.perLivreur[a].total;}).map(function(name){
+    var lv=stats.perLivreur[name];
+    return '<tr><td style="padding:8px;border-bottom:1px solid #EDE8DF;">'+esc(name)+'</td><td style="padding:8px;border-bottom:1px solid #EDE8DF;text-align:center;">'+lv.total+'</td><td style="padding:8px;border-bottom:1px solid #EDE8DF;text-align:center;color:#2A7A3A;">'+lv.delivered+'</td><td style="padding:8px;border-bottom:1px solid #EDE8DF;text-align:center;color:#C8281A;">'+lv.issues+'</td></tr>';
+  }).join('');
+  var html='<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Tableau de bord '+dateFrom+' au '+dateTo+'</title>'+
+    '<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:24px;color:#1A1208;background:#F7F3EC;}'+
+    '.header{display:flex;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:2px solid #1A1208;}'+
+    '.brand{font-family:Georgia;font-size:22px;}table{width:100%;border-collapse:collapse;margin-top:10px;}th{text-align:left;font-size:10px;text-transform:uppercase;color:#8A7A68;padding:8px;border-bottom:2px solid #1A1208;}'+
+    '.stats{display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap;}.stat{background:#fff;border:1px solid #D4CBC0;border-radius:8px;padding:12px 18px;text-align:center;min-width:110px;}'+
+    '.stat-num{font-family:Georgia;font-size:26px;font-weight:700;}.stat-lbl{font-size:9px;color:#8A7A68;text-transform:uppercase;}'+
+    '@media print{.no-print{display:none;}}</style></head><body>'+
+    '<div class="no-print" style="margin-bottom:16px;"><button onclick="window.print()" style="padding:10px 20px;background:#1A1208;color:#F7F3EC;border:none;border-radius:6px;font-weight:700;cursor:pointer;">🖨 Imprimer / PDF</button></div>'+
+    '<div class="header"><div class="brand">Fournil de Jean — Tableau de bord</div><div style="font-size:12px;color:#8A7A68;">'+dateFrom.split('-').reverse().join('/')+' au '+dateTo.split('-').reverse().join('/')+'</div></div>'+
+    '<div class="stats">'+
+      '<div class="stat"><div class="stat-num">'+t.total+'</div><div class="stat-lbl">Total</div></div>'+
+      '<div class="stat"><div class="stat-num" style="color:#2A7A3A;">'+rate+'%</div><div class="stat-lbl">Taux livraison</div></div>'+
+      '<div class="stat"><div class="stat-num" style="color:#C87010;">'+t.pending+'</div><div class="stat-lbl">En attente</div></div>'+
+      '<div class="stat"><div class="stat-num" style="color:#C8281A;">'+(t.absent+t.refused+t.incident)+'</div><div class="stat-lbl">Incidents</div></div>'+
+    '</div>'+
+    svgBarChart(stats.days,700,160)+
+    '<table><thead><tr><th>Livreur</th><th style="text-align:center;">Total</th><th style="text-align:center;">Livrées</th><th style="text-align:center;">Incidents</th></tr></thead><tbody>'+livRows+'</tbody></table>'+
+    '</body></html>';
+  var w=window.open('','_blank');
+  if(w){w.document.write(html);w.document.close();}else alert('Autorisez les popups pour generer le tableau de bord.');
+}
 function renderRapportModal(){
   if(!state.showRapport) return '';
   var today=toLocalISODate(new Date());
@@ -1130,6 +1260,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       var curLiv=state.livreurs.find(function(l){return l.name===d.livreur;});
       if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="share-whatsapp" data-id="'+d.id+'">📤 Partager le suivi (WhatsApp)</button>';
       html+='<div class="divider"></div>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:'+(state.showModifier?'12':'0')+'px;" data-action="toggle-modifier">'+(state.showModifier?'▲ Fermer':'✏️ Modifier')+'</button>';
       if(state.showModifier){
@@ -1153,7 +1284,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';html+='<button class="btn-outline" data-action="share-whatsapp" data-id="'+d.id+'">📤 WhatsApp</button>';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderResponsableApp(){
   var total=state.deliveries.length,
@@ -1173,6 +1304,7 @@ function renderResponsableApp(){
     '<button class="resp-action" data-action="open-livreurs"><span class="resp-action-icon">👥</span><span class="resp-action-lbl">Livreurs</span></button>'+
     '<button class="resp-action" data-action="export-excel"><span class="resp-action-icon">💾</span><span class="resp-action-lbl">Sauv.</span></button>'+
     '<button class="resp-action" data-action="open-rapport"><span class="resp-action-icon">📄</span><span class="resp-action-lbl">Rapport</span></button>'+
+    '<button class="resp-action" data-action="open-dashboard"><span class="resp-action-icon">📊</span><span class="resp-action-lbl">Bilan</span></button>'+
     '<button class="resp-action resp-action-quit" data-action="logout"><span class="resp-action-icon">🚪</span><span class="resp-action-lbl">Quitter</span></button>'+
   '</div>'+
   '</div>';
@@ -1193,7 +1325,7 @@ function renderResponsableApp(){
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderDetailModal()+renderRapportModal();
+  html+=renderAddModal()+renderLivreursModal()+renderDetailModal()+renderRapportModal()+renderDashboardModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -1213,6 +1345,21 @@ if(action==='do-livreur-pwd-check'){var pwd=document.getElementById('l-pwd').val
 if(action==='do-livreur-new-pwd'){var p1=document.getElementById('l-pwd1').value;var p2=document.getElementById('l-pwd2').value;if(!p1){state.loginError='Entrez un mot de passe.';render();return;}if(p1!==p2){state.loginError='Les mots de passe ne correspondent pas.';render();return;}if(p1.length<4){state.loginError='Mot de passe trop court (4 caractères min).';render();return;}var hash=hashPwd(p1);var liv2;if(state.pendingLivreurObj){state.pendingLivreurObj.pwdHash=hash;saveLivreurs(state.livreurs);liv2=state.pendingLivreurObj;}else{var newId=addLivreur(state.pendingLivreurName,'');liv2=getLivreurById(newId);liv2.pwdHash=hash;saveLivreurs(state.livreurs);}state.livreurName=liv2.name;localStorage.setItem('fdj-livreur',liv2.name);state.livreurId=liv2.id;sessionStorage.setItem('fdj-role','livreur');sessionStorage.setItem('fdj-livreur-id',liv2.id);state.role='livreur';state.screen='app';state.loginError='';load(state.date);return;}
 if(action==='open-rapport'){state.showRapport=true;render();return;}
 if(action==='close-rapport'){state.showRapport=false;render();return;}
+if(action==='open-dashboard'){state.showDashboard=true;state._dashboardStats=null;render();return;}
+if(action==='close-dashboard'){state.showDashboard=false;state._dashboardStats=null;render();return;}
+if(action==='gen-dashboard'){
+  var dbFrom=document.getElementById('db-from').value, dbTo=document.getElementById('db-to').value;
+  if(!dbFrom||!dbTo){alert('Sélectionnez une période.');return;}
+  if(dbFrom>dbTo){alert('La date début doit être avant la date fin.');return;}
+  state._dashboardStats=computeDashboardStats(dbFrom,dbTo);
+  state._dashboardRange={from:dbFrom,to:dbTo};
+  render();return;
+}
+if(action==='print-dashboard'){
+  var r=state._dashboardRange;
+  if(r)printDashboard(r.from,r.to);
+  return;
+}
 if(action==='gen-rapport'){
   var from=document.getElementById('r-from').value;
   var to=document.getElementById('r-to').value;
@@ -1298,6 +1445,7 @@ if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
 }return;}
 if(action==='export-excel'){exportExcel();return;}
 if(action==='gen-invoice'){var deliv=state.deliveries.find(function(x){return x.id===id;});if(deliv)generateInvoice(deliv);return;}
+if(action==='share-whatsapp'){var delivSh=state.deliveries.find(function(x){return x.id===id;});if(delivSh)shareDeliveryWhatsApp(delivSh);return;}
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
 if(action==='reassign-livreur'){
   // Réassigner sans pointer — garder en attente
@@ -1432,8 +1580,61 @@ window.onFbSaveError=function(collection_name, err){
     alert('⚠️ Une photo est trop volumineuse pour etre synchronisee en ligne. Elle reste visible sur cet appareil mais ne sera pas partagee avec les autres tant que le probleme persiste.');
   }
 };
+
+// ── SUIVI PUBLIC (lien partageable, sans connexion) ──
+var TRACK_STATUS_PUBLIC={
+  pending:{icon:'📦',label:'Votre commande est en cours de préparation',color:'#C87010'},
+  delivered:{icon:'✅',label:'Livré !',color:'#2A7A3A'},
+  absent:{icon:'🔔',label:'Tentative de livraison : vous étiez absent',color:'#C8281A'},
+  refused:{icon:'↩️',label:'Livraison non effectuée',color:'#C8281A'},
+  incident:{icon:'⚠️',label:'Un incident est survenu sur cette livraison',color:'#C8281A'}
+};
+function renderPublicTrackingShell(innerHtml){
+  document.getElementById('app').innerHTML=
+    '<div class="shell" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;">'+
+      '<div style="font-size:40px;margin-bottom:8px;">🌾</div>'+
+      '<div style="font-family:var(--display);font-size:20px;margin-bottom:20px;color:var(--ink);">Fournil de Jean</div>'+
+      innerHtml+
+    '</div>';
+}
+function initPublicTracking(trackId, trackDate){
+  renderPublicTrackingShell('<div class="spinner" style="margin:20px auto;"></div><div style="color:var(--ink-3);font-size:13px;">Chargement du suivi…</div>');
+  function attempt(){
+    if(!window.fbReady||!window.fbDb||!window.fbModules){setTimeout(attempt,400);return;}
+    var m=window.fbModules;
+    m.getDoc(m.doc(window.fbDb,'fdj-tournees',trackDate)).then(function(snap){
+      var list=(snap.exists()&&snap.data().deliveries)||[];
+      var d=list.find(function(x){return x.id===trackId;});
+      if(!d){
+        renderPublicTrackingShell('<div style="font-size:32px;margin-bottom:10px;">🔎</div><div style="font-size:15px;color:var(--ink-2);">Suivi introuvable.</div><div style="font-size:12px;color:var(--ink-3);margin-top:6px;">Le lien est peut-etre expire ou incorrect.</div>');
+        return;
+      }
+      var meta=TRACK_STATUS_PUBLIC[d.status]||TRACK_STATUS_PUBLIC.pending;
+      var timeInfo=d.status==='delivered'&&d.deliveredAt?('à '+new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})):('prévue '+esc(d.time||''));
+      renderPublicTrackingShell(
+        '<div style="font-size:44px;margin-bottom:8px;">'+meta.icon+'</div>'+
+        '<div style="font-size:17px;font-weight:700;color:'+meta.color+';margin-bottom:6px;">'+meta.label+'</div>'+
+        '<div style="font-size:13px;color:var(--ink-3);margin-bottom:20px;">Livraison '+timeInfo+'</div>'+
+        '<div style="background:#fff;border:1px solid var(--rule);border-radius:12px;padding:16px;width:100%;max-width:320px;text-align:left;">'+
+          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin-bottom:2px;">Client</div>'+
+          '<div style="font-size:15px;font-weight:700;color:var(--ink);">'+esc(d.client||'')+'</div>'+
+        '</div>'+
+        '<button class="btn-outline" style="margin-top:20px;padding:10px 20px;" onclick="location.reload()">🔄 Actualiser</button>'
+      );
+    }).catch(function(){
+      renderPublicTrackingShell('<div style="font-size:32px;margin-bottom:10px;">⚠️</div><div style="font-size:14px;color:var(--ink-2);">Impossible de charger le suivi pour le moment.</div>');
+    });
+  }
+  attempt();
+}
+var _trackParams=new URLSearchParams(location.search);
+var _trackId=_trackParams.get('track'), _trackDate=_trackParams.get('d');
+if(_trackId&&_trackDate){
+  initPublicTracking(_trackId,_trackDate);
+} else {
 render();
 if(state.screen==='app')load(state.date);
+}
 
 // Render override : signatures + caméra + images
 var _origRender=render;
