@@ -490,33 +490,54 @@ function genId(){return 'd_'+Date.now()+'_'+Math.random().toString(36).slice(2,8
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function mapsUrl(a){return'https://maps.google.com/maps?daddr='+encodeURIComponent(a);}
 function getTrackingUrl(deliveryId,date){return location.origin+location.pathname+'?track='+encodeURIComponent(deliveryId)+'&d='+encodeURIComponent(date);}
-function shareWhatsApp(text){window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');}
 function extractClientPhone(instructions){
   if(!instructions)return'';
   var m=instructions.match(/T[eé]l\s*[:\-]\s*([\d][\d\s\-\.]{8,14})/i);
   return m?m[1].trim():'';
 }
-function buildDeliveryBLText(d){
+function buildOrderRecapText(d){
   var meta=STATUS_META[d.status];
   var phone=extractClientPhone(d.instructions);
-  var lines=['🌾 *Fournil de Jean*'];
+  var items=d.ref?parseItems(d.ref):[];
+  var lines=[];
+  lines.push('🌾 Fournil de Jean');
   lines.push('');
-  lines.push('*Client :* '+d.client);
-  if(phone)lines.push('*Tel :* '+phone);
+  lines.push('RECAPITULATIF DE COMMANDE');
   lines.push('');
-  var statusLine='*STATUT : '+meta.label.toUpperCase()+'*';
-  if(d.status==='delivered'&&d.deliveredAt)statusLine+=' à '+new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  lines.push('Client : '+d.client);
+  if(d.address)lines.push('Adresse : '+d.address);
+  if(phone)lines.push('Tel : '+phone);
+  lines.push('Date : '+formatDateLabel(state.date)+(d.time?' a '+d.time:''));
+  if(items.length){
+    lines.push('');
+    lines.push('Produits :');
+    items.forEach(function(it){lines.push('- '+it.name+(it.qty>1?' x'+it.qty:''));});
+  }
+  lines.push('');
+  var statusLine='Statut : '+meta.label.toUpperCase();
+  if(d.status==='delivered'&&d.deliveredAt)statusLine+=' a '+new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
   lines.push(statusLine);
-  if(d.note){lines.push('');lines.push('*Constat :* '+d.note);}
+  if(d.note){lines.push('');lines.push('Constat : '+d.note);}
   return lines.join('\n');
 }
-function shareDelivery(d){
-  var text=buildDeliveryBLText(d);
+function shareViaWhatsApp(d){
+  window.open('https://wa.me/?text='+encodeURIComponent(buildOrderRecapText(d)),'_blank');
+}
+function shareViaSMS(d){
+  window.open('sms:?body='+encodeURIComponent(buildOrderRecapText(d)),'_blank');
+}
+function shareViaEmail(d){
+  var subject='Recapitulatif de commande - '+d.client;
+  window.open('mailto:?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(buildOrderRecapText(d)),'_blank');
+}
+function shareWithAttachment(d){
+  var text=buildOrderRecapText(d);
   var photos=getDeliveryPhotos(d);
   var fileSources=[];
-  if(d.blPdf) fileSources.push({src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'});
+  if(d.blPdf) fileSources.push({src:d.blPdf, name:'BL-'+(d.client||'livraison').replace(/[^a-z0-9]/gi,'-')+'.pdf', type:'application/pdf'});
   photos.forEach(function(p,i){fileSources.push({src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'});});
-  if(navigator.share && fileSources.length){
+  if(!fileSources.length){alert('Aucune photo ni BL a joindre pour cette livraison.');return;}
+  if(navigator.share){
     Promise.all(fileSources.map(function(fs){return fetch(fs.src).then(function(r){return r.blob();});}))
       .then(function(blobs){
         var files=blobs.map(function(b,i){return new File([b],fileSources[i].name,{type:fileSources[i].type});});
@@ -526,22 +547,26 @@ function shareDelivery(d){
         return navigator.share({title:'Livraison '+d.client, text:text});
       })
       .catch(function(err){
-        if(err && err.name==='AbortError')return; // l'utilisateur a annule, on ne force rien
-        shareWhatsApp(text); // partage indisponible/echoue : repli texte via WhatsApp
+        if(err && err.name==='AbortError')return;
+        alert('Le partage avec piece jointe n\'est pas disponible sur cet appareil/navigateur.');
       });
-  } else if(navigator.share){
-    navigator.share({title:'Livraison '+d.client, text:text}).catch(function(err){
-      if(err && err.name==='AbortError')return;
-      shareWhatsApp(text);
-    });
   } else {
-    shareWhatsApp(text);
+    alert('Le partage avec piece jointe n\'est pas disponible sur cet appareil/navigateur.');
   }
+}
+function renderShareRow(d){
+  return '<div style="font-size:10px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">📤 Partager le récapitulatif</div>'+
+    '<div style="display:flex;gap:6px;margin-bottom:6px;">'+
+      '<button class="btn-outline" style="flex:1;padding:10px 4px;font-size:12px;" data-action="share-whatsapp" data-id="'+d.id+'">💬 WhatsApp</button>'+
+      '<button class="btn-outline" style="flex:1;padding:10px 4px;font-size:12px;" data-action="share-sms" data-id="'+d.id+'">✉️ SMS</button>'+
+      '<button class="btn-outline" style="flex:1;padding:10px 4px;font-size:12px;" data-action="share-email" data-id="'+d.id+'">📧 Email</button>'+
+    '</div>'+
+    '<button class="btn-outline" style="width:100%;font-size:12px;margin-bottom:8px;" data-action="share-attachment" data-id="'+d.id+'">📎 Joindre une photo / le BL si besoin</button>';
 }
 function openDeliveryPdf(d){
   if(!d.blPdf){alert('Aucun PDF importe pour cette livraison.');return;}
   var w=window.open(d.blPdf,'_blank');
-  if(!w)alert('Autorisez les popups pour ouvrir le PDF.');
+  if(!w)alert('Autorisez les popups pour ouvrir le BL.');
 }
 function arrayBufferToBase64(buffer){
   var bytes=new Uint8Array(buffer);
@@ -1449,7 +1474,7 @@ function renderLivreurApp(){
       '<span class="wheat-icon">🌾</span>'+
     '</div>'+
   '</div></div>';
-  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Vue livreur &nbsp;<span style="font-size:9px;color:var(--ink-3);opacity:.6;">'+APP_VERSION+'</span></div>';
+  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Vue livreur</div>';
   if(state.errorMsg)html+='<div class="error-box">'+esc(state.errorMsg)+'</div>';
   html+='<div class="date-row">'+
     '<button class="date-arr" data-action="prev-day">&#8249;</button>'+
@@ -1496,7 +1521,7 @@ function renderLivreurApp(){
   return html;
 }
 
-function renderAddModal(){if(!state.showAdd)return'';var pdfBtn=state.pdfParsing?'<button class="btn-pdf" disabled>⏳ Lecture en cours...</button>':'<button class="btn-pdf" data-action="open-pdf">📄 Importer un bon de livraison PDF</button>';var pdfOk=state.pdfData?'<div class="pdf-ok">✅ PDF importé — vérifiez les champs.</div>':'';var invBtn='';return'<div class="modal-overlay" data-action="close-add"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Nouvelle livraison</h2><button class="modal-close" data-action="close-add">✕</button></div>'+pdfBtn+pdfOk+invBtn+'<div class="field"><div class="field-label">Date de livraison</div><input id="f-date" type="date" value="'+esc(state.pdfData&&state.pdfData.date?convertDate(state.pdfData.date):toLocalISODate(new Date()))+'" /></div><div class="field"><div class="field-label">Client *</div><input id="f-client" placeholder="Nom du client" value="'+esc(state.pdfData&&state.pdfData.client||'')+'" /></div><div class="field"><div class="field-label">Adresse *</div><input id="f-address" placeholder="Adresse de livraison" value="'+esc(state.pdfData&&state.pdfData.address||'')+'" />'+(state.pdfData&&state.pdfData.address?'<a class="maps-link" href="'+mapsUrl(state.pdfData.address)+'" target="_blank">📍 Voir sur Maps</a>':'')+'</div>'+timeInputBig('f-time',state.pdfData&&state.pdfData.time||'')+'<div class="field"><div class="field-label">N° BL</div><input id="f-bl" placeholder="Ex. BL1/123456" value="'+esc(state.pdfData&&state.pdfData.blNum||'')+'" /></div>'+renderProductsSection()+'<div class="field"><div class="field-label">Instructions</div><textarea id="f-instructions" rows="2" placeholder="Code immeuble, étage...">'+esc(state.pdfData&&state.pdfData.instructions||'')+'</textarea></div><button class="btn-primary" data-action="submit-add">Ajouter à la tournée</button><button class=\"btn-pdf\" style=\"margin-top:10px;border:1.5px solid var(--teal);color:var(--teal-d);background:var(--teal-l);font-weight:700;\" data-action=\"download-bl\">📄 Télécharger le BL modifié</button></div></div>';
+function renderAddModal(){if(!state.showAdd)return'';var pdfBtn=state.pdfParsing?'<button class="btn-pdf" disabled>⏳ Lecture en cours...</button>':'<button class="btn-pdf" data-action="open-pdf">📄 Importer un BL</button>';var pdfOk=state.pdfData?'<div class="pdf-ok">✅ BL importé — vérifiez les champs.</div>':'';var invBtn='';return'<div class="modal-overlay" data-action="close-add"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Nouvelle livraison</h2><button class="modal-close" data-action="close-add">✕</button></div>'+pdfBtn+pdfOk+invBtn+'<div class="field"><div class="field-label">Date de livraison</div><input id="f-date" type="date" value="'+esc(state.pdfData&&state.pdfData.date?convertDate(state.pdfData.date):toLocalISODate(new Date()))+'" /></div><div class="field"><div class="field-label">Client *</div><input id="f-client" placeholder="Nom du client" value="'+esc(state.pdfData&&state.pdfData.client||'')+'" /></div><div class="field"><div class="field-label">Adresse *</div><input id="f-address" placeholder="Adresse de livraison" value="'+esc(state.pdfData&&state.pdfData.address||'')+'" />'+(state.pdfData&&state.pdfData.address?'<a class="maps-link" href="'+mapsUrl(state.pdfData.address)+'" target="_blank">📍 Voir sur Maps</a>':'')+'</div>'+timeInputBig('f-time',state.pdfData&&state.pdfData.time||'')+'<div class="field"><div class="field-label">N° BL</div><input id="f-bl" placeholder="Ex. BL1/123456" value="'+esc(state.pdfData&&state.pdfData.blNum||'')+'" /></div>'+renderProductsSection()+'<div class="field"><div class="field-label">Instructions</div><textarea id="f-instructions" rows="2" placeholder="Code immeuble, étage...">'+esc(state.pdfData&&state.pdfData.instructions||'')+'</textarea></div><button class="btn-primary" data-action="submit-add">Ajouter à la tournée</button><button class=\"btn-pdf\" style=\"margin-top:10px;border:1.5px solid var(--teal);color:var(--teal-d);background:var(--teal-l);font-weight:700;\" data-action=\"download-bl\">📄 Télécharger le BL modifié</button></div></div>';
 }
 function renderLivreursModal(){if(!state.showLivreurs)return'';var livItems=state.livreurs.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun livreur enregistré.</p>':'<div class="livreur-list">'+state.livreurs.map(function(l){return'<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+(l.pwdHash?'<span class="livreur-pwd-status">🔐 Mot de passe défini</span>':'<span class="livreur-pwd-status livreur-no-pwd">⚠️ Pas de mot de passe</span>')+'</div><div style="display:flex;gap:6px;"><button class="btn-reset-pwd" data-action="reset-pwd-livreur" data-id="'+l.id+'">Réinit.</button><button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div></div>';}).join('')+'</div>';return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">✕</button></div>'+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div></div></div>';}
 function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending'&&d.status!=='in_progress';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';html+='<div class="divider"></div>';
@@ -1529,8 +1554,9 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
       html+='</div>';
     }
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';
-    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
+    html+=renderShareRow(d);
+    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le BL</button>';
+    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le BL</button>';
     // Constats + prise de photo : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
@@ -1539,7 +1565,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+='<div class="actions-row">';html+='<button class="btn-outline" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';if(d.blPdf)html+='<button class="btn-outline" data-action="open-bl-pdf" data-id="'+d.id+'">📄 PDF</button>';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le BL</button>';html+='<div class="actions-row">';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderResponsableApp(){
   var total=state.deliveries.length,
@@ -1564,7 +1590,7 @@ function renderResponsableApp(){
     '<button class="resp-action resp-action-quit" data-action="logout"><span class="resp-action-icon">🚪</span><span class="resp-action-lbl">Quitter</span></button>'+
   '</div>'+
   '</div>';
-  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Accès complet &nbsp;<span style="font-size:10px;color:var(--green);">⬤ FourniLive</span> &nbsp;<span style="font-size:9px;color:var(--ink-3);opacity:.6;">'+APP_VERSION+'</span></div>';
+  html+='<div class="app-sub">'+formatDateLabel(state.date)+' · Accès complet &nbsp;<span style="font-size:10px;color:var(--green);">⬤ FourniLive</span></div>';
   if(state.selMode){
     var nbSel=Object.keys(state.selected).length;
     html+='<div class="sel-bar"><span class="sel-count">'+nbSel+' sélectionnée'+(nbSel>1?'s':'')+'</span>'+
@@ -1711,7 +1737,10 @@ if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
 }return;}
 if(action==='export-excel'){exportExcel();return;}
 if(action==='gen-invoice'){var deliv=state.deliveries.find(function(x){return x.id===id;});if(deliv)generateInvoice(deliv);return;}
-if(action==='share-delivery'){var delivSh=state.deliveries.find(function(x){return x.id===id;});if(delivSh)shareDelivery(delivSh);return;}
+if(action==='share-whatsapp'){var delivWa=state.deliveries.find(function(x){return x.id===id;});if(delivWa)shareViaWhatsApp(delivWa);return;}
+if(action==='share-sms'){var delivSm=state.deliveries.find(function(x){return x.id===id;});if(delivSm)shareViaSMS(delivSm);return;}
+if(action==='share-email'){var delivEm=state.deliveries.find(function(x){return x.id===id;});if(delivEm)shareViaEmail(delivEm);return;}
+if(action==='share-attachment'){var delivAt=state.deliveries.find(function(x){return x.id===id;});if(delivAt)shareWithAttachment(delivAt);return;}
 if(action==='open-bl-pdf'){var delivPdf=state.deliveries.find(function(x){return x.id===id;});if(delivPdf)openDeliveryPdf(delivPdf);return;}
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
 if(action==='reassign-livreur'){
