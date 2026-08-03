@@ -93,6 +93,20 @@ function listenCamions(date) {
 }
 window.listenCamions = listenCamions;
 
+// Pieces jointes (photos + PDF) : stockees a part, un document par livraison,
+// pour ne jamais faire grossir le document du jour au-dela de la limite Firestore (1 Mo).
+function listenAttachments(date) {
+  var q = query(collection(db, 'fdj-attachments'), where('date', '==', date));
+  return onSnapshot(q, function(snap) {
+    if(typeof window.onFbAttachments === 'function') {
+      var result = {};
+      snap.forEach(function(d) { result[d.id] = d.data(); });
+      window.onFbAttachments(result);
+    }
+  });
+}
+window.listenAttachments = listenAttachments;
+
 console.log('✅ Firebase FourniLive connecté');
 </script>
 <style>
@@ -408,7 +422,7 @@ if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudf
 "use strict";
 var MOT_DE_PASSE="Mohcine";
 var TVA_RATE=0.055,PRIX_HT=1.00;
-var APP_VERSION='v2026-08-03.4';
+var APP_VERSION='v2026-08-03.5';
 var STATUS_META={
   pending:    {label:'En attente',ind:'ind-pending',    sp:'sp-pending',    oc:'oc-amber',      fg:'#C87010',bg:'#FEF4E6'},
   in_progress:{label:'En cours',  ind:'ind-inprogress', sp:'sp-inprogress', oc:'oc-inprogress', fg:'#1E6FA8',bg:'#E8F2FA'},
@@ -953,6 +967,31 @@ function load(date){
       render();
     };
     window._unsubCamions=window.listenCamions(date);
+    if(window._unsubAttachments) window._unsubAttachments();
+    window.onFbAttachments=function(attachments){
+      var changed=false;
+      var merged=state.deliveries.map(function(d){
+        var att=attachments[d.id];
+        if(!att)return d;
+        var localPhotos=getDeliveryPhotos(d);
+        var incomingPhotos=att.photos||[];
+        var usePhotos=incomingPhotos.length>localPhotos.length?incomingPhotos:localPhotos;
+        var useBlPdf=d.blPdf||att.blPdf||null;
+        if(usePhotos!==localPhotos||useBlPdf!==d.blPdf){
+          changed=true;
+          var copy=Object.assign({},d,{photos:usePhotos,blPdf:useBlPdf});
+          delete copy.photo;
+          return copy;
+        }
+        return d;
+      });
+      if(changed){
+        state.deliveries=merged;
+        try{localStorage.setItem('fdj-tournee:'+date,JSON.stringify(merged));}catch(e){}
+        render();
+      }
+    };
+    window._unsubAttachments=window.listenAttachments(date);
   }
 }
 function persist(list){
@@ -983,7 +1022,7 @@ function persist(list){
   }
   doFbSave();
 }
-function addDelivery(data){var entry={id:genId(),client:data.client,address:data.address,time:data.time,ref:data.ref||'',instructions:data.instructions||'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',blPdf:data.blPdf||null,createdAt:new Date().toISOString()};persist(state.deliveries.concat([entry]));state.showAdd=false;state.pdfData=null;render();}
+function addDelivery(data){var entry={id:genId(),client:data.client,address:data.address,time:data.time,ref:data.ref||'',instructions:data.instructions||'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',blPdf:data.blPdf||null,createdAt:new Date().toISOString()};persist(state.deliveries.concat([entry]));if(entry.blPdf)syncDeliveryAttachments(entry.id);state.showAdd=false;state.pdfData=null;render();}
 function assignLivreur(id,livreurId){
   var liv=getLivreurById(livreurId);
   persist(state.deliveries.map(function(d){
@@ -1008,6 +1047,23 @@ function addDeliveryPhoto(id,photoSrc){
     delete copy.photo; // migrer vers le tableau, on ne garde plus l'ancien champ unique
     return copy;
   }));
+  syncDeliveryAttachments(id);
+}
+function syncDeliveryAttachments(id){
+  // Envoie les photos/PDF de CETTE livraison uniquement vers une collection a part,
+  // pour que les autres appareils les recuperent sans jamais faire grossir le document du jour.
+  var d=state.deliveries.find(function(x){return x.id===id;});
+  if(!d)return;
+  var photos=getDeliveryPhotos(d);
+  if(!photos.length && !d.blPdf)return; // rien a synchroniser
+  function doSync(){
+    if(window.fbReady){
+      window.fbSave('fdj-attachments', id, {photos:photos, blPdf:d.blPdf||null, date:state.date});
+    } else {
+      setTimeout(doSync, 500);
+    }
+  }
+  doSync();
 }
 function deleteDeliveryPhoto(id,index){
   persist(state.deliveries.map(function(d){
@@ -1018,6 +1074,7 @@ function deleteDeliveryPhoto(id,index){
     delete copy.photo;
     return copy;
   }));
+  syncDeliveryAttachments(id);
   render();
 }
 function revertDelivery(id){pointDelivery(id,{status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:''});}
