@@ -740,6 +740,7 @@ function exportExcel(dateFrom, dateTo){
     var dk=toLocalISODate(d);
     var dayDeliveries=[];
     try{var raw=localStorage.getItem('fdj-tournee:'+dk);if(raw)dayDeliveries=JSON.parse(raw)||[];}catch(e){}
+    dayDeliveries=dayDeliveries.filter(function(del){return del.status!=='pending';}); // seuls les BL finalises (Livre/Absent/Incident/Refuse)
     var dayCamions=[];
     try{var rawc=localStorage.getItem('fdj-camions:'+dk);if(rawc)dayCamions=JSON.parse(rawc)||[];}catch(e){}
 
@@ -1191,6 +1192,7 @@ function computeDashboardStats(dateFrom, dateTo){
     var dk=toLocalISODate(d);
     var list=[];
     try{var raw=localStorage.getItem('fdj-tournee:'+dk);if(raw)list=JSON.parse(raw)||[];}catch(e){}
+    list=list.filter(function(del){return del.status!=='pending';}); // le bilan ne prend en compte que les BL finalises (Livre/Absent/Incident/Refuse)
     var dayCounts={date:dk,total:list.length,delivered:0,issues:0};
     list.forEach(function(del){
       totals.total++;
@@ -1256,10 +1258,9 @@ function renderDashboardModal(){
   if(stats){
     var t=stats.totals;
     var rate=t.total?Math.round((t.delivered/t.total)*100):0;
-    body+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0;">'+
+    body+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0;">'+
       '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;">'+t.total+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Total</div></div>'+
       '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#2A7A3A;">'+rate+'%</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Taux de livraison</div></div>'+
-      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#C87010;">'+t.pending+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">En attente</div></div>'+
       '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#C8281A;">'+(t.absent+t.refused+t.incident)+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Incidents</div></div>'+
     '</div>';
     body+='<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;margin-bottom:16px;">'+svgBarChart(stats.days)+'</div>';
@@ -1387,7 +1388,6 @@ function printDashboard(dateFrom, dateTo){
     '<div class="stats">'+
       '<div class="stat"><div class="stat-num">'+t.total+'</div><div class="stat-lbl">Total</div></div>'+
       '<div class="stat"><div class="stat-num" style="color:#2A7A3A;">'+rate+'%</div><div class="stat-lbl">Taux livraison</div></div>'+
-      '<div class="stat"><div class="stat-num" style="color:#C87010;">'+t.pending+'</div><div class="stat-lbl">En attente</div></div>'+
       '<div class="stat"><div class="stat-num" style="color:#C8281A;">'+(t.absent+t.refused+t.incident)+'</div><div class="stat-lbl">Incidents</div></div>'+
     '</div>'+
     svgBarChart(stats.days,700,160)+
@@ -1495,7 +1495,10 @@ function renderLivreurApp(){
   allCams.forEach(function(cam,i){
     var justSignedThis=state._justSavedCamId===cam.id;
     html+='<div class="camion-card" style="'+(i>0?'margin-top:-2px;border-top:none;border-radius:0 0 14px 14px;':'')+'">'+
-      '<div class="camion-title">🚚 '+(allCams.length>1?'Camion '+(i+1)+' sur '+allCams.length:'Mon camion du jour')+'</div>'+
+      '<div class="camion-title" style="display:flex;justify-content:space-between;align-items:center;">'+
+        '<span>🚚 '+(allCams.length>1?'Camion '+(i+1)+' sur '+allCams.length:'Mon camion du jour')+'</span>'+
+        (i>0?'<button class="btn-sig-clear" data-action="delete-camion" data-cam-id="'+cam.id+'" style="text-transform:none;letter-spacing:normal;">✕ Fermer</button>':'')+
+      '</div>'+
       '<div class="camion-fields">'+
         '<div class="camion-fwrap"><div class="camion-flabel">N° Camion</div>'+
           '<input id="cf-camion-'+cam.id+'" class="camion-finput camion-field" data-cam-id="'+cam.id+'" data-cam-field="camion" data-cam-next="cf-heurePrise-'+cam.id+'" type="text" maxlength="8" placeholder="CAM-01" value="'+(justSignedThis?'':esc(cam.camion||''))+'"/></div>'+
@@ -1771,6 +1774,15 @@ else if(action==='next-day')changeDate(1);
 else if(action==='today')changeDate('today');
 else if(action==='open-add'){state.showAdd=true;state.pdfData=null;render();}
 else if(action==='add-camion'){if(state.livreurId)addNewCamion(state.livreurId);return;}
+else if(action==='delete-camion'){
+  var camIdDel=el.getAttribute('data-cam-id');
+  if(camIdDel&&confirm('Fermer ce camion ? Ses informations seront supprimees.')){
+    state.camions=state.camions.filter(function(c){return c.id!==camIdDel;});
+    saveCamions(state.date,state.camions);
+    render();
+  }
+  return;
+}
 else if(action==='close-add'){state.showAdd=false;state.pdfData=null;render();}
 else if(action==='download-bl'){
   var blEl=document.getElementById('f-bl');
