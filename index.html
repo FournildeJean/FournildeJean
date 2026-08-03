@@ -967,13 +967,19 @@ function load(date){
     window.onFbDeliveries=function(deliveries){
       // Firestore ne contient jamais les photos/PDF (trop volumineux) : on les represerve
       // depuis les donnees locales pour ne pas les perdre a chaque synchronisation.
+      // Important : on compare le nombre de photos AVEC une vraie donnee (src), pas juste
+      // la longueur du tableau, sinon une entree "vide" (metadonnee seule) bloque a jamais
+      // l'arrivee de la vraie photo.
+      function realCount(photos){return(photos||[]).filter(function(p){return p&&p.src;}).length;}
       var localById={};
       state.deliveries.forEach(function(d){localById[d.id]=d;});
       var merged=deliveries.map(function(incoming){
         var local=localById[incoming.id];
         if(local){
+          var localReal=realCount(local.photos);
+          var incomingReal=realCount(incoming.photos);
           return Object.assign({},incoming,{
-            photos:(local.photos&&local.photos.length)?local.photos:(incoming.photos||[]),
+            photos:localReal>=incomingReal?(local.photos||[]):(incoming.photos||[]),
             blPdf:local.blPdf||incoming.blPdf||null
           });
         }
@@ -993,13 +999,14 @@ function load(date){
     window._unsubCamions=window.listenCamions(date);
     if(window._unsubAttachments) window._unsubAttachments();
     window.onFbAttachments=function(attachments){
+      function realCount(photos){return(photos||[]).filter(function(p){return p&&p.src;}).length;}
       var changed=false;
       var merged=state.deliveries.map(function(d){
         var att=attachments[d.id];
         if(!att)return d;
         var localPhotos=getDeliveryPhotos(d);
         var incomingPhotos=att.photos||[];
-        var usePhotos=incomingPhotos.length>localPhotos.length?incomingPhotos:localPhotos;
+        var usePhotos=realCount(incomingPhotos)>=realCount(localPhotos)&&incomingPhotos.length?incomingPhotos:localPhotos;
         var useBlPdf=d.blPdf||att.blPdf||null;
         if(usePhotos!==localPhotos||useBlPdf!==d.blPdf){
           changed=true;
@@ -1057,7 +1064,7 @@ function assignLivreur(id,livreurId){
 }
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
 function getDeliveryPhotos(d){
-  if(d.photos&&d.photos.length)return d.photos;
+  if(d.photos&&d.photos.length)return d.photos.filter(function(p){return p&&p.src;});
   if(d.photo)return[{src:d.photo,at:d.deliveredAt||null}];
   return[];
 }
