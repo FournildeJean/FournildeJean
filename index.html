@@ -502,8 +502,6 @@ function buildOrderRecapText(d){
   var lines=[];
   lines.push('🌾 Fournil de Jean');
   lines.push('');
-  lines.push('RECAPITULATIF DE COMMANDE');
-  lines.push('');
   lines.push('Client : '+d.client);
   if(d.address)lines.push('Adresse : '+d.address);
   if(phone)lines.push('Tel : '+phone);
@@ -520,53 +518,20 @@ function buildOrderRecapText(d){
   if(d.note){lines.push('');lines.push('Constat : '+d.note);}
   return lines.join('\n');
 }
-function shareViaWhatsApp(d){
-  window.open('https://wa.me/?text='+encodeURIComponent(buildOrderRecapText(d)),'_blank');
-}
-function shareViaSMS(d){
-  window.open('sms:?body='+encodeURIComponent(buildOrderRecapText(d)),'_blank');
-}
-function shareViaEmail(d){
-  var subject='Recapitulatif de commande - '+d.client;
-  window.open('mailto:?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(buildOrderRecapText(d)),'_blank');
-}
-function shareWithAttachment(d){
+function shareOrder(d){
   var text=buildOrderRecapText(d);
-  var photos=getDeliveryPhotos(d);
-  var fileSources=[];
-  if(d.blPdf) fileSources.push({src:d.blPdf, name:'BL-'+(d.client||'livraison').replace(/[^a-z0-9]/gi,'-')+'.pdf', type:'application/pdf'});
-  photos.forEach(function(p,i){fileSources.push({src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'});});
-  if(!fileSources.length){alert('Aucune photo ni BL a joindre pour cette livraison.');return;}
   if(navigator.share){
-    Promise.all(fileSources.map(function(fs){return fetch(fs.src).then(function(r){return r.blob();});}))
-      .then(function(blobs){
-        var files=blobs.map(function(b,i){return new File([b],fileSources[i].name,{type:fileSources[i].type});});
-        if(navigator.canShare && navigator.canShare({files:files})){
-          return navigator.share({title:'Livraison '+d.client, text:text, files:files});
-        }
-        return navigator.share({title:'Livraison '+d.client, text:text});
-      })
-      .catch(function(err){
-        if(err && err.name==='AbortError')return;
-        alert('Le partage avec piece jointe n\'est pas disponible sur cet appareil/navigateur.');
-      });
+    navigator.share({title:'Livraison '+d.client, text:text}).catch(function(err){
+      if(err && err.name==='AbortError')return; // l'utilisateur a annule, on ne force rien
+      window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank'); // repli si le partage natif echoue
+    });
   } else {
-    alert('Le partage avec piece jointe n\'est pas disponible sur cet appareil/navigateur.');
+    window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
   }
 }
 function renderShareRow(d){
-  return '<div style="font-size:10px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">📤 Partager le récapitulatif</div>'+
-    '<div style="display:flex;gap:6px;margin-bottom:6px;">'+
-      '<button class="btn-outline" style="flex:1;padding:10px 4px;font-size:12px;" data-action="share-whatsapp" data-id="'+d.id+'">💬 WhatsApp</button>'+
-      '<button class="btn-outline" style="flex:1;padding:10px 4px;font-size:12px;" data-action="share-sms" data-id="'+d.id+'">✉️ SMS</button>'+
-      '<button class="btn-outline" style="flex:1;padding:10px 4px;font-size:12px;" data-action="share-email" data-id="'+d.id+'">📧 Email</button>'+
-    '</div>'+
-    '<button class="btn-outline" style="width:100%;font-size:12px;margin-bottom:8px;" data-action="share-attachment" data-id="'+d.id+'">📎 Joindre une photo / le BL si besoin</button>';
-}
-function openDeliveryPdf(d){
-  if(!d.blPdf){alert('Aucun PDF importe pour cette livraison.');return;}
-  var w=window.open(d.blPdf,'_blank');
-  if(!w)alert('Autorisez les popups pour ouvrir le BL.');
+  if(state.role!=='responsable')return''; // le partage est reserve a l'espace responsable
+  return '<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="share-order" data-id="'+d.id+'">📤 Partager</button>';
 }
 function arrayBufferToBase64(buffer){
   var bytes=new Uint8Array(buffer);
@@ -1555,8 +1520,6 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='</div>';
     }
     html+=renderShareRow(d);
-    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le BL</button>';
-    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le BL</button>';
     // Constats + prise de photo : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
@@ -1565,7 +1528,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le BL</button>';html+='<div class="actions-row">';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderResponsableApp(){
   var total=state.deliveries.length,
@@ -1737,11 +1700,7 @@ if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
 }return;}
 if(action==='export-excel'){exportExcel();return;}
 if(action==='gen-invoice'){var deliv=state.deliveries.find(function(x){return x.id===id;});if(deliv)generateInvoice(deliv);return;}
-if(action==='share-whatsapp'){var delivWa=state.deliveries.find(function(x){return x.id===id;});if(delivWa)shareViaWhatsApp(delivWa);return;}
-if(action==='share-sms'){var delivSm=state.deliveries.find(function(x){return x.id===id;});if(delivSm)shareViaSMS(delivSm);return;}
-if(action==='share-email'){var delivEm=state.deliveries.find(function(x){return x.id===id;});if(delivEm)shareViaEmail(delivEm);return;}
-if(action==='share-attachment'){var delivAt=state.deliveries.find(function(x){return x.id===id;});if(delivAt)shareWithAttachment(delivAt);return;}
-if(action==='open-bl-pdf'){var delivPdf=state.deliveries.find(function(x){return x.id===id;});if(delivPdf)openDeliveryPdf(delivPdf);return;}
+if(action==='share-order'){var delivShare=state.deliveries.find(function(x){return x.id===id;});if(delivShare)shareOrder(delivShare);return;}
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
 if(action==='reassign-livreur'){
   // Réassigner sans pointer — garder en attente
