@@ -209,7 +209,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .date-arr:first-child{border-right:1px solid var(--rule);}
 .date-arr:last-child{border-left:1px solid var(--rule);}
 .date-center{flex:1;text-align:center;padding:12px;background:var(--paper);border:none;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;font-family:var(--body);}
-.stats-strip{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:2px solid var(--ink);}
+.stats-strip{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:2px solid var(--ink);}
 .stat-cell{padding:10px 4px 8px;text-align:center;border-right:1px solid var(--rule);}
 .stat-cell:last-child{border-right:none;}
 .stat-num{font-family:var(--display);font-size:24px;font-weight:700;line-height:1;color:var(--ink);}
@@ -408,7 +408,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 
 /* ===== RESPONSIVE (consolidated) ===== */
 @media(min-width:640px){.modal-overlay{align-items:center;}.modal-sheet{border-radius:18px;border:3px solid var(--ink);max-width:600px;}.shell{max-width:860px;}.app-header{padding:24px 24px 0;}.app-sub{padding:10px 24px;}.date-row .date-center{font-size:15px;}.date-arr{width:50px;height:50px;font-size:22px;}.stats-strip .stat-num{font-size:30px;}.stats-strip .stat-lbl{font-size:10px;}.stat-cell{padding:14px 8px 10px;}.row-body{padding:13px 24px 13px 16px;}.row-client{font-size:15px;}.row-address{font-size:12px;}.hour-head{padding:10px 24px 8px;}.resp-action{padding:14px 8px;}.resp-action-icon{font-size:22px;}.resp-action-lbl{font-size:9px;}.camion-card{margin:16px;border-radius:12px;}.camion-finput{font-size:14px;padding:10px;}.btn-photo-brand{font-size:40px;}.rnav-btn{padding:12px 8px;}.rnav-icon{font-size:22px;}.rnav-lbl{font-size:9px;}.delivery-row{border-radius:6px;margin-bottom:3px;}.resp-actions .resp-action{padding:14px 8px;}.livreur-list .livreur-item{padding:14px 18px;}.livreur-name{font-size:15px;}}
-@media(min-width:1024px){body{background:var(--paper-2);}.shell{max-width:900px;background:var(--paper);box-shadow:0 4px 40px rgba(0,0,0,.12);min-height:100vh;border-radius:0;}.stats-strip{grid-template-columns:repeat(5,1fr);}.stats-strip .stat-num{font-size:34px;}.delivery-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;}.hour-block .delivery-list{display:grid;grid-template-columns:1fr 1fr;gap:6px;}.row-body{padding:14px 20px 14px 14px;}.modal-sheet{max-width:640px;}.fab{right:calc(50% - 430px + 24px);bottom:32px;}.resp-actions{padding:0;}.camion-fields{grid-template-columns:1fr 1fr 1fr;}.login-photo-brand{font-size:42px;}.login-photo-btns{flex-direction:row;gap:16px;}.btn-photo{flex:1;}.login-form-card{padding:36px 32px;}.delivery-row{transition:background .08s;}}
+@media(min-width:1024px){body{background:var(--paper-2);}.shell{max-width:900px;background:var(--paper);box-shadow:0 4px 40px rgba(0,0,0,.12);min-height:100vh;border-radius:0;}.stats-strip{grid-template-columns:repeat(4,1fr);}.stats-strip .stat-num{font-size:34px;}.delivery-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;}.hour-block .delivery-list{display:grid;grid-template-columns:1fr 1fr;gap:6px;}.row-body{padding:14px 20px 14px 14px;}.modal-sheet{max-width:640px;}.fab{right:calc(50% - 430px + 24px);bottom:32px;}.resp-actions{padding:0;}.camion-fields{grid-template-columns:1fr 1fr 1fr;}.login-photo-brand{font-size:42px;}.login-photo-btns{flex-direction:row;gap:16px;}.btn-photo{flex:1;}.login-form-card{padding:36px 32px;}.delivery-row{transition:background .08s;}}
 </style>
 </head>
 <body>
@@ -431,7 +431,7 @@ var STATUS_META={
   refused:    {label:'Refuse',    ind:'ind-refused',    sp:'sp-refused',    oc:'oc-refused',    fg:'#C8281A',bg:'#FEF0EE'},
   incident:   {label:'Incident',  ind:'ind-incident',   sp:'sp-incident',   oc:'oc-incident',   fg:'#C8281A',bg:'#FEF0EE'}
 };
-var OUTCOMES=[{key:'in_progress',label:'En cours',cls:'oc-inprogress'},{key:'delivered',label:'Livre',cls:'oc-delivered'},{key:'absent',label:'Absent',cls:'oc-absent'},{key:'refused',label:'Refuse',cls:'oc-refused'},{key:'incident',label:'Incident',cls:'oc-incident'}];
+var OUTCOMES=[{key:'delivered',label:'Livre',cls:'oc-delivered'},{key:'absent',label:'Absent',cls:'oc-absent'},{key:'refused',label:'Refuse',cls:'oc-refused'},{key:'incident',label:'Incident',cls:'oc-incident'}];
 
 
 function loadLivreurs(){try{var r=localStorage.getItem('fdj-livreurs-list');return r?JSON.parse(r):[];}catch(e){return[];}}
@@ -1250,8 +1250,7 @@ function renderDashboardModal(){
       '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;">'+t.total+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Total</div></div>'+
       '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#2A7A3A;">'+rate+'%</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Taux de livraison</div></div>'+
       '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#C87010;">'+t.pending+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">En attente</div></div>'+
-      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#1E6FA8;">'+t.in_progress+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">En cours</div></div>'+
-      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;grid-column:span 2;"><div style="font-family:var(--display);font-size:26px;color:#C8281A;">'+(t.absent+t.refused+t.incident)+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Incidents</div></div>'+
+      '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;text-align:center;"><div style="font-family:var(--display);font-size:26px;color:#C8281A;">'+(t.absent+t.refused+t.incident)+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);letter-spacing:.08em;">Incidents</div></div>'+
     '</div>';
     body+='<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:12px;margin-bottom:16px;">'+svgBarChart(stats.days)+'</div>';
     var livKeys=Object.keys(stats.perLivreur);
@@ -1379,7 +1378,6 @@ function printDashboard(dateFrom, dateTo){
       '<div class="stat"><div class="stat-num">'+t.total+'</div><div class="stat-lbl">Total</div></div>'+
       '<div class="stat"><div class="stat-num" style="color:#2A7A3A;">'+rate+'%</div><div class="stat-lbl">Taux livraison</div></div>'+
       '<div class="stat"><div class="stat-num" style="color:#C87010;">'+t.pending+'</div><div class="stat-lbl">En attente</div></div>'+
-      '<div class="stat"><div class="stat-num" style="color:#1E6FA8;">'+t.in_progress+'</div><div class="stat-lbl">En cours</div></div>'+
       '<div class="stat"><div class="stat-num" style="color:#C8281A;">'+(t.absent+t.refused+t.incident)+'</div><div class="stat-lbl">Incidents</div></div>'+
     '</div>'+
     svgBarChart(stats.days,700,160)+
@@ -1456,7 +1454,6 @@ function renderLivreurApp(){
   var total=state.deliveries.length,
       delivered=state.deliveries.filter(function(d){return d.status==='delivered';}).length,
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
-      inProgress=state.deliveries.filter(function(d){return d.status==='in_progress';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
   var html='<div class="shell">';
   html+='<div class="app-header"><div class="header-top">'+
@@ -1477,7 +1474,7 @@ function renderLivreurApp(){
     '<button class="date-center" data-action="today">'+formatDateLabel(state.date)+'</button>'+
     '<button class="date-arr" data-action="next-day">&#8250;</button>'+
   '</div>';
-  html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('En cours',inProgress)+statCell('Incidents',issues)+'</div>';
+  html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   // Camions multiples
   var allCams=getCamionsByLivreurId(state.livreurId);
   if(allCams.length===0){
@@ -1564,7 +1561,6 @@ function renderResponsableApp(){
   var total=state.deliveries.length,
       delivered=state.deliveries.filter(function(d){return d.status==='delivered';}).length,
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
-      inProgress=state.deliveries.filter(function(d){return d.status==='in_progress';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
   var html='<div class="shell">';
   html+='<div class="app-header"><div class="header-top" style="padding-bottom:10px;">'+
@@ -1597,7 +1593,7 @@ function renderResponsableApp(){
     '<button class="date-center" data-action="today">'+formatDateLabel(state.date)+'</button>'+
     '<button class="date-arr" data-action="next-day">&#8250;</button>'+
   '</div>';
-  html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('En cours',inProgress)+statCell('Incidents',issues)+'</div>';
+  html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
   html+=renderAddModal()+renderLivreursModal()+renderDetailModal()+renderRapportModal()+renderDashboardModal()+renderSauvModal();
