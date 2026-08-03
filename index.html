@@ -408,7 +408,7 @@ if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudf
 "use strict";
 var MOT_DE_PASSE="Mohcine";
 var TVA_RATE=0.055,PRIX_HT=1.00;
-var APP_VERSION='v2026-08-02.2';
+var APP_VERSION='v2026-08-03.1';
 var STATUS_META={
   pending:    {label:'En attente',ind:'ind-pending',    sp:'sp-pending',    oc:'oc-amber',      fg:'#C87010',bg:'#FEF4E6'},
   in_progress:{label:'En cours',  ind:'ind-inprogress', sp:'sp-inprogress', oc:'oc-inprogress', fg:'#1E6FA8',bg:'#E8F2FA'},
@@ -499,9 +499,11 @@ function buildDeliveryBLText(d){
 function shareDelivery(d){
   var text=buildDeliveryBLText(d);
   var photos=getDeliveryPhotos(d);
-  var fileSources=[];
-  if(d.blPdf) fileSources.push({src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'});
-  photos.forEach(function(p,i){fileSources.push({src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'});});
+  // Important : ne jamais melanger PDF + photos dans un seul partage. Confirme par test reel :
+  // WhatsApp affiche les deux pieces jointes au moment de composer, mais les supprime
+  // silencieusement a l'envoi des qu'on melange un PDF avec une image. On partage donc
+  // le texte + les photos ensemble (meme type = fiable), et le PDF via un bouton a part.
+  var fileSources=photos.map(function(p,i){return {src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'};});
   if(navigator.share && fileSources.length){
     Promise.all(fileSources.map(function(fs){return fetch(fs.src).then(function(r){return r.blob();});}))
       .then(function(blobs){
@@ -1467,7 +1469,10 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='</div>';
     }
     html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';
-    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
+    if(d.blPdf){
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:4px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
+      html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:8px;text-align:center;">💡 WhatsApp n\'accepte pas PDF + photo ensemble : envoyez le PDF a part, puis "Partager le suivi" pour le texte et la/les photo(s).</div>';
+    }
     // Constats + prise de photo : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
