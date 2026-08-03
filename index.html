@@ -435,8 +435,6 @@ var OUTCOMES=[{key:'in_progress',label:'En cours',cls:'oc-inprogress'},{key:'del
 
 
 function loadLivreurs(){try{var r=localStorage.getItem('fdj-livreurs-list');return r?JSON.parse(r):[];}catch(e){return[];}}
-function loadWaGroups(){try{var r=localStorage.getItem('fdj-wa-groups');return r?JSON.parse(r):[];}catch(e){return[];}}
-function saveWaGroups(groups){try{localStorage.setItem('fdj-wa-groups',JSON.stringify(groups));}catch(e){}}
 // Synchroniser livreurs depuis Firebase au démarrage
 function initFbLivreurs(){
   if(!window.fbReady){setTimeout(initFbLivreurs,500);return;}
@@ -481,7 +479,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,showSauvExport:false,showWaGroups:false,waGroups:loadWaGroups(),waShareDeliveryId:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,showSauvExport:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -533,27 +531,7 @@ function shareOrder(d){
 }
 function renderShareRow(d){
   if(state.role!=='responsable')return''; // le partage est reserve a l'espace responsable
-  return '<div style="display:flex;gap:8px;margin-bottom:8px;">'+
-    '<button class="btn-outline" style="flex:1;" data-action="share-order" data-id="'+d.id+'">📤 Partager</button>'+
-    '<button class="btn-outline" style="flex:1;" data-action="open-wa-groups" data-id="'+d.id+'">👥 Groupe WhatsApp</button>'+
-  '</div>';
-}
-function renderWaGroupsModal(){
-  if(!state.showWaGroups)return'';
-  var d=state.deliveries.find(function(x){return x.id===state.waShareDeliveryId;});
-  var groupsHtml=state.waGroups.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun groupe enregistré.</p>':
-    '<div class="livreur-list">'+state.waGroups.map(function(g){
-      return '<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(g.name)+'</div></div>'+
-        '<div style="display:flex;gap:6px;"><button class="btn-reset-pwd" data-action="send-to-wa-group" data-gid="'+g.id+'">📤 Envoyer</button><button class="livreur-del" data-action="delete-wa-group" data-gid="'+g.id+'">🗑</button></div></div>';
-    }).join('')+'</div>';
-  return '<div class="modal-overlay" data-action="close-wa-groups"><div class="modal-sheet" data-action="noop">'+
-    '<div class="modal-head"><h2 class="modal-title">👥 Groupes WhatsApp</h2><button class="modal-close" data-action="close-wa-groups">✕</button></div>'+
-    '<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">💡 WhatsApp ne permet pas d\'envoyer un message directement dans un groupe depuis l\'extérieur. "Envoyer" copie le récapitulatif et ouvre le groupe : il ne reste qu\'à coller (appui long puis "Coller").</div>'+
-    groupsHtml+
-    '<div class="divider"></div>'+
-    '<div class="section-lbl">Ajouter un groupe</div>'+
-    '<div class="add-row"><input id="wg-name" placeholder="Nom du groupe" type="text"/><input id="wg-link" placeholder="Lien d\'invitation WhatsApp" type="text"/><button class="btn-add-lv" data-action="submit-add-wa-group">+</button></div>'+
-  '</div></div>';
+  return '<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="share-order" data-id="'+d.id+'">📤 Partager</button>';
 }
 function arrayBufferToBase64(buffer){
   var bytes=new Uint8Array(buffer);
@@ -1508,7 +1486,7 @@ function renderLivreurApp(){
     allCams=[firstCam];state.camions=state.camions.concat([firstCam]);saveCamions(state.date,state.camions);
   }
   allCams.forEach(function(cam,i){
-    var justSignedThis=state._justSignedCamId===cam.id;
+    var justSignedThis=state._justSavedCamId===cam.id;
     html+='<div class="camion-card" style="'+(i>0?'margin-top:-2px;border-top:none;border-radius:0 0 14px 14px;':'')+'">'+
       '<div class="camion-title">🚚 '+(allCams.length>1?'Camion '+(i+1)+' sur '+allCams.length:'Mon camion du jour')+'</div>'+
       '<div class="camion-fields">'+
@@ -1524,12 +1502,12 @@ function renderLivreurApp(){
       '<div class="sig-wrap" style="margin-top:10px;">'+
         '<div class="sig-label"><span>✍️ Signature</span>'+
           '<button class="btn-sig-clear" data-action="'+(cam.signature?'erase-cam-signature':'clear-sig-cam')+'" data-cam-id="'+cam.id+'">Effacer</button></div>'+
-        (state._justSignedCamId===cam.id?
+        (justSignedThis?
           '<div style="width:100%;height:70px;border:1.5px solid var(--green);border-radius:8px;background:#fff;"></div>':
         cam.signature?
           '<img src="'+cam.signature+'" style="width:100%;max-height:70px;object-fit:contain;border:1.5px solid var(--green);border-radius:8px;background:#fff;"/>':
           '<canvas id="sig-cam-'+cam.id+'" class="sig-canvas" style="height:80px;"></canvas>')+
-        (state._justSignedCamId===cam.id?'<div style="margin-top:8px;padding:8px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:12px;font-weight:700;text-align:center;">✅ Vous avez signé !</div>':'')+
+        (justSignedThis?'<div style="margin-top:8px;padding:8px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:12px;font-weight:700;text-align:center;">✅ Vous avez signé !</div>':'')+
       '</div>'+
       '<button class="btn-save-camion" data-action="save-camion" data-cam-id="'+cam.id+'">'+(state._justSavedCamId===cam.id?'✅ Validé !':'Valider')+'</button>'+
     '</div>';
@@ -1581,7 +1559,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">✕ Annuler</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderResponsableApp(){
   var total=state.deliveries.length,
@@ -1623,7 +1601,7 @@ function renderResponsableApp(){
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('En cours',inProgress)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderDetailModal()+renderRapportModal()+renderDashboardModal()+renderSauvModal()+renderWaGroupsModal();
+  html+=renderAddModal()+renderLivreursModal()+renderDetailModal()+renderRapportModal()+renderDashboardModal()+renderSauvModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -1733,12 +1711,10 @@ if(action==='save-camion'){
   if(sigCam&&sigCam.classList.contains('signed')){sigData=sigCam.toDataURL('image/png');}
   if(sigData&&camIdSave){
     upsertCamionById(camIdSave,{signature:sigData});
-    state._justSignedCamId=camIdSave;
-    setTimeout(function(){if(state._justSignedCamId===camIdSave){state._justSignedCamId=null;render();}},3000);
   }
   state._justSavedCamId=camIdSave;
   setTimeout(function(){if(state._justSavedCamId===camIdSave){state._justSavedCamId=null;render();}},3000);
-  render(); // le cadre de signature s'efface immediatement (remplace par l'image)
+  render(); // le formulaire (champs + signature) s'efface immediatement, confirmation visuelle
   return;
 }
 if(action==='open-livreurs'){state.showLivreurs=true;render();return;}
@@ -1776,45 +1752,6 @@ if(action==='download-bl'){
   return;
 }
 if(action==='share-order'){var delivShare=state.deliveries.find(function(x){return x.id===id;});if(delivShare)shareOrder(delivShare);return;}
-if(action==='open-wa-groups'){state.waShareDeliveryId=id;state.showWaGroups=true;render();return;}
-if(action==='close-wa-groups'){state.showWaGroups=false;state.waShareDeliveryId=null;render();return;}
-if(action==='submit-add-wa-group'){
-  var wgName=document.getElementById('wg-name').value.trim();
-  var wgLink=document.getElementById('wg-link').value.trim();
-  if(!wgName||!wgLink){alert('Indiquez un nom et un lien de groupe.');return;}
-  state.waGroups=state.waGroups.concat([{id:genId(),name:wgName,link:wgLink}]);
-  saveWaGroups(state.waGroups);
-  render();
-  return;
-}
-if(action==='delete-wa-group'){
-  var gidDel=el.getAttribute('data-gid');
-  state.waGroups=state.waGroups.filter(function(g){return g.id!==gidDel;});
-  saveWaGroups(state.waGroups);
-  render();
-  return;
-}
-if(action==='send-to-wa-group'){
-  var gidSend=el.getAttribute('data-gid');
-  var grp=state.waGroups.find(function(g){return g.id===gidSend;});
-  var delivWg=state.deliveries.find(function(x){return x.id===state.waShareDeliveryId;});
-  if(!grp||!delivWg)return;
-  var textWg=buildOrderRecapText(delivWg);
-  function openGroupLink(){window.open(grp.link,'_blank');}
-  if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(textWg).then(function(){
-      alert('Texte copié ! Ouverture du groupe "'+grp.name+'" — collez le message une fois dedans.');
-      openGroupLink();
-    }).catch(function(){
-      alert('Impossible de copier automatiquement. Le groupe va s\'ouvrir, copiez le texte manuellement depuis la fiche.');
-      openGroupLink();
-    });
-  } else {
-    alert('Ouverture du groupe "'+grp.name+'" — copiez le récapitulatif manuellement depuis la fiche livraison.');
-    openGroupLink();
-  }
-  return;
-}
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
 if(action==='reassign-livreur'){
   // Réassigner sans pointer — garder en attente
@@ -1913,7 +1850,7 @@ else if(action==='clear-sig-cam'){
 }
 else if(action==='erase-cam-signature'){
   var camIdErase=el.getAttribute('data-cam-id');
-  if(camIdErase&&confirm('Effacer cette signature ?')){if(state._justSignedCamId===camIdErase)state._justSignedCamId=null;upsertCamionById(camIdErase,{signature:null});render();}
+  if(camIdErase&&confirm('Effacer cette signature ?')){if(state._justSavedCamId===camIdErase)state._justSavedCamId=null;upsertCamionById(camIdErase,{signature:null});render();}
 }
 else if(action==='submit-point'){
   var selId=state.role==='livreur'?state.livreurId:state.selectedLivreurId;
