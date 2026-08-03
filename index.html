@@ -408,7 +408,7 @@ if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudf
 "use strict";
 var MOT_DE_PASSE="Mohcine";
 var TVA_RATE=0.055,PRIX_HT=1.00;
-var APP_VERSION='v2026-08-03.1';
+var APP_VERSION='v2026-08-03.2';
 var STATUS_META={
   pending:    {label:'En attente',ind:'ind-pending',    sp:'sp-pending',    oc:'oc-amber',      fg:'#C87010',bg:'#FEF4E6'},
   in_progress:{label:'En cours',  ind:'ind-inprogress', sp:'sp-inprogress', oc:'oc-inprogress', fg:'#1E6FA8',bg:'#E8F2FA'},
@@ -499,11 +499,9 @@ function buildDeliveryBLText(d){
 function shareDelivery(d){
   var text=buildDeliveryBLText(d);
   var photos=getDeliveryPhotos(d);
-  // Important : ne jamais melanger PDF + photos dans un seul partage. Confirme par test reel :
-  // WhatsApp affiche les deux pieces jointes au moment de composer, mais les supprime
-  // silencieusement a l'envoi des qu'on melange un PDF avec une image. On partage donc
-  // le texte + les photos ensemble (meme type = fiable), et le PDF via un bouton a part.
-  var fileSources=photos.map(function(p,i){return {src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'};});
+  var fileSources=[];
+  if(d.blPdf) fileSources.push({src:d.blPdf, name:'bon-de-livraison.pdf', type:'application/pdf'});
+  photos.forEach(function(p,i){fileSources.push({src:p.src, name:'photo'+(i+1)+'.jpg', type:'image/jpeg'});});
   if(navigator.share && fileSources.length){
     Promise.all(fileSources.map(function(fs){return fetch(fs.src).then(function(r){return r.blob();});}))
       .then(function(blobs){
@@ -1211,62 +1209,42 @@ function autoFitCols(rows){
   });
   return widths.map(function(w){return {wch:w};});
 }
+function buildDashboardFlatRows(dateFrom, dateTo){
+  var rows=[];
+  var d=new Date(dateFrom+'T00:00:00'), end=new Date(dateTo+'T00:00:00');
+  while(d<=end){
+    var dk=toLocalISODate(d);
+    var list=[];
+    try{var raw=localStorage.getItem('fdj-tournee:'+dk);if(raw)list=JSON.parse(raw)||[];}catch(e){}
+    list.forEach(function(del){
+      var statusLabel=(STATUS_META[del.status]||{}).label||del.status;
+      var isIncident=['absent','refused','incident'].indexOf(del.status)!==-1?'Oui':'Non';
+      var items=del.ref?parseProductItemsStrict(del.ref):[];
+      if(items.length){
+        items.forEach(function(item){
+          rows.push([dk, del.client||'', del.livreur||'', statusLabel, item.name, item.qty, isIncident]);
+        });
+      } else {
+        rows.push([dk, del.client||'', del.livreur||'', statusLabel, '', '', isIncident]);
+      }
+    });
+    d.setDate(d.getDate()+1);
+  }
+  return rows;
+}
 function exportDashboardExcel(dateFrom, dateTo){
   if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
-  var stats=computeDashboardStats(dateFrom,dateTo);
-  var t=stats.totals;
-  var rate=t.total?Math.round((t.delivered/t.total)*100):0;
+  var header=['Date','Client','Livreur','Statut','Produit','Quantite','Incident'];
+  var dataRows=buildDashboardFlatRows(dateFrom,dateTo);
+  if(!dataRows.length){alert('Aucune donnee pour cette periode.');return;}
+  var rows=[header].concat(dataRows);
 
-  var rowsResume=[['Indicateur','Valeur']];
-  rowsResume.push(['Periode', dateFrom.split('-').reverse().join('/')+' au '+dateTo.split('-').reverse().join('/')]);
-  rowsResume.push(['Total livraisons', t.total]);
-  rowsResume.push(['Livrees', t.delivered]);
-  rowsResume.push(['En attente', t.pending]);
-  rowsResume.push(['En cours', t.in_progress]);
-  rowsResume.push(['Absent', t.absent]);
-  rowsResume.push(['Refuse', t.refused]);
-  rowsResume.push(['Incident', t.incident]);
-  rowsResume.push(['Taux de livraison', rate+'%']);
-  rowsResume.push([]);
-  rowsResume.push(['Date','Total','Livrees','Incidents']);
-  stats.days.forEach(function(dday){rowsResume.push([dday.date, dday.total, dday.delivered, dday.issues]);});
-
-  var rowsLiv=[['Livreur','Total','Livrees','Incidents']];
-  Object.keys(stats.perLivreur).sort(function(a,b){return stats.perLivreur[b].total-stats.perLivreur[a].total;}).forEach(function(name){
-    var lv=stats.perLivreur[name];
-    rowsLiv.push([name, lv.total, lv.delivered, lv.issues]);
-  });
-
-  var rowsClients=[['Client','Livraisons','Incidents']];
-  Object.keys(stats.perClient).sort(function(a,b){return stats.perClient[b].total-stats.perClient[a].total;}).forEach(function(name){
-    var c=stats.perClient[name];
-    rowsClients.push([name, c.total, c.issues]);
-  });
-
-  var rowsProducts=[['Produit','Quantite','Commandes']];
-  Object.keys(stats.perProduct).sort(function(a,b){return stats.perProduct[b].qty-stats.perProduct[a].qty;}).forEach(function(key){
-    var p=stats.perProduct[key];
-    rowsProducts.push([p.name, p.qty, p.orders]);
-  });
-
-  var wsResume=XLSX.utils.aoa_to_sheet(rowsResume);
-  var wsLiv=XLSX.utils.aoa_to_sheet(rowsLiv);
-  var wsClients=XLSX.utils.aoa_to_sheet(rowsClients);
-  var wsProducts=XLSX.utils.aoa_to_sheet(rowsProducts);
-
-  wsResume['!cols']=autoFitCols(rowsResume);
-  wsLiv['!cols']=autoFitCols(rowsLiv);
-  if(rowsLiv.length>1)wsLiv['!autofilter']={ref:'A1:D1'};
-  wsClients['!cols']=autoFitCols(rowsClients);
-  if(rowsClients.length>1)wsClients['!autofilter']={ref:'A1:C1'};
-  wsProducts['!cols']=autoFitCols(rowsProducts);
-  if(rowsProducts.length>1)wsProducts['!autofilter']={ref:'A1:C1'};
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=autoFitCols(rows);
+  ws['!autofilter']={ref:'A1:G'+rows.length};
 
   var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,wsResume,'Resume');
-  XLSX.utils.book_append_sheet(wb,wsLiv,'Par livreur');
-  XLSX.utils.book_append_sheet(wb,wsClients,'Clients');
-  XLSX.utils.book_append_sheet(wb,wsProducts,'Produits');
+  XLSX.utils.book_append_sheet(wb,ws,'Donnees');
   XLSX.writeFile(wb,'bilan-'+dateFrom+'-au-'+dateTo+'.xlsx');
 }
 function printDashboard(dateFrom, dateTo){
@@ -1469,10 +1447,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='</div>';
     }
     html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="share-delivery" data-id="'+d.id+'">📤 Partager le suivi</button>';
-    if(d.blPdf){
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:4px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
-      html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:8px;text-align:center;">💡 WhatsApp n\'accepte pas PDF + photo ensemble : envoyez le PDF a part, puis "Partager le suivi" pour le texte et la/les photo(s).</div>';
-    }
+    if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-bl-pdf" data-id="'+d.id+'">📄 Ouvrir le PDF du BL</button>';
     // Constats + prise de photo : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
