@@ -408,7 +408,7 @@ if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudf
 "use strict";
 var MOT_DE_PASSE="Mohcine";
 var TVA_RATE=0.055,PRIX_HT=1.00;
-var APP_VERSION='v2026-08-03.3';
+var APP_VERSION='v2026-08-03.4';
 var STATUS_META={
   pending:    {label:'En attente',ind:'ind-pending',    sp:'sp-pending',    oc:'oc-amber',      fg:'#C87010',bg:'#FEF4E6'},
   in_progress:{label:'En cours',  ind:'ind-inprogress', sp:'sp-inprogress', oc:'oc-inprogress', fg:'#1E6FA8',bg:'#E8F2FA'},
@@ -927,8 +927,22 @@ function load(date){
   if(window.fbReady){
     if(window._unsubDeliveries) window._unsubDeliveries();
     window.onFbDeliveries=function(deliveries){
-      state.deliveries=deliveries;
-      try{localStorage.setItem('fdj-tournee:'+date,JSON.stringify(deliveries));}catch(e){}
+      // Firestore ne contient jamais les photos/PDF (trop volumineux) : on les represerve
+      // depuis les donnees locales pour ne pas les perdre a chaque synchronisation.
+      var localById={};
+      state.deliveries.forEach(function(d){localById[d.id]=d;});
+      var merged=deliveries.map(function(incoming){
+        var local=localById[incoming.id];
+        if(local){
+          return Object.assign({},incoming,{
+            photos:(local.photos&&local.photos.length)?local.photos:(incoming.photos||[]),
+            blPdf:local.blPdf||incoming.blPdf||null
+          });
+        }
+        return incoming;
+      });
+      state.deliveries=merged;
+      try{localStorage.setItem('fdj-tournee:'+date,JSON.stringify(merged));}catch(e){}
       render();
     };
     window._unsubDeliveries=window.listenTodayDeliveries(date);
@@ -950,9 +964,19 @@ function persist(list){
     state.errorMsg='Sauvegarde echouee (stockage plein). Liberez de la place ou contactez le support.';
     alert('⚠️ ATTENTION : la sauvegarde locale a echoue (memoire pleine). La derniere action n\'a peut-etre pas ete enregistree. Verifiez et reessayez.');
   }
+  // Les photos/PDF ne partent JAMAIS vers Firestore (un document Firestore est limite a 1 Mo :
+  // avec plusieurs livraisons ayant chacune photos+PDF, cette limite est vite atteinte et bloque
+  // alors TOUTE nouvelle sauvegarde du jour, meme l'ajout d'une simple livraison sans photo).
+  // On garde les photos/PDF en local uniquement, et on envoie une version allegee au cloud.
+  var lightList=list.map(function(d){
+    var copy=Object.assign({},d);
+    if(copy.photos&&copy.photos.length)copy.photos=copy.photos.map(function(p){return{at:p.at};});
+    if(copy.blPdf)copy.blPdf=null;
+    return copy;
+  });
   function doFbSave(){
     if(window.fbReady){
-      window.fbSave('fdj-tournees', state.date, {deliveries:list, date:state.date, updatedAt:ts});
+      window.fbSave('fdj-tournees', state.date, {deliveries:lightList, date:state.date, updatedAt:ts});
     } else {
       setTimeout(doFbSave, 500); // retry si Firebase pas prêt
     }
