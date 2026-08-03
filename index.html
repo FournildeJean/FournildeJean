@@ -1519,7 +1519,6 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
       html+='</div>';
     }
-    html+=renderShareRow(d);
     // Constats + prise de photo : pour livreur toujours visible, pour responsable sous "Modifier"
     if(state.role==='livreur'||state.showModifier){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
