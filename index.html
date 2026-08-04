@@ -539,6 +539,31 @@ function shareOrder(d){
     window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
   }
 }
+function buildTourneeRecapText(tourneeNum,members){
+  var title=members[0]&&members[0].tourneeTitle;
+  var lines=[];
+  lines.push('🌾 Fournil de Jean');
+  lines.push('');
+  lines.push('Tournée '+tourneeNum+(title?' — '+title:'')+' ('+members.length+' BL)');
+  lines.push('');
+  members.forEach(function(d){
+    lines.push('- '+d.client+' : '+STATUS_META[d.status].label.toUpperCase());
+  });
+  var notes=members.map(function(d){return d.note;}).filter(Boolean);
+  if(notes.length){lines.push('');lines.push('Constat : '+notes.join(' | '));}
+  return lines.join('\n');
+}
+function shareTournee(tourneeNum,members){
+  var text=buildTourneeRecapText(tourneeNum,members);
+  if(navigator.share){
+    navigator.share({title:'Tournée '+tourneeNum, text:text}).catch(function(err){
+      if(err && err.name==='AbortError')return;
+      window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
+    });
+  } else {
+    window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
+  }
+}
 function renderShareRow(d){
   if(state.role!=='responsable')return''; // le partage est reserve a l'espace responsable
   return '<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="share-order" data-id="'+d.id+'">📤 Partager</button>';
@@ -593,8 +618,16 @@ function handlePhoto(e){
     var noteEl=document.getElementById('f-note');
     if(noteEl) state.pendingNote=noteEl.value;
     var targetId=state.selectedId;
+    var tourneeNum=state.selectedTourneeNum;
     compressImage(ev.target.result, 1280, 0.72).then(function(compressed){
-      if(targetId) addDeliveryPhoto(targetId, compressed); // sauvegarde immediate dans la galerie
+      if(targetId){
+        addDeliveryPhoto(targetId, compressed); // sauvegarde immediate dans la galerie
+      } else if(tourneeNum){
+        // Photo prise au niveau de la tournee : appliquee a tous les BL du groupe
+        state.deliveries.filter(function(d){return d.tourneeNum===tourneeNum;}).forEach(function(d){
+          addDeliveryPhoto(d.id, compressed);
+        });
+      }
       render();
     });
   };
@@ -1536,10 +1569,13 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
     items.forEach(function(d){statusCounts[d.status]=(statusCounts[d.status]||0)+1;});
     var order2=['delivered','pending','absent','refused','incident'];
     var summary=order2.filter(function(s){return statusCounts[s];}).map(function(s){return statusCounts[s]+' '+STATUS_META[s].label.toLowerCase();}).join(' · ');
-    return '<button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+
-      '<div class="tournee-summary-top"><span class="tournee-summary-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</span><span class="tournee-summary-count">'+items.length+' BL</span></div>'+
-      '<div class="tournee-summary-sub">'+(items[0].livreur?'👤 '+esc(items[0].livreur)+' · ':'')+esc(summary)+'</div>'+
-    '</button>';
+    var summaryContent='<div class="tournee-summary-top"><span class="tournee-summary-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</span><span class="tournee-summary-count">'+items.length+' BL</span></div>'+
+      '<div class="tournee-summary-sub">'+(items[0].livreur?'👤 '+esc(items[0].livreur)+' · ':'')+esc(summary)+'</div>';
+    if(state.selMode){
+      var allSelected=items.every(function(d){return state.selected[d.id];});
+      return '<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+(allSelected?'checked':'')+' data-action="toggle-select-tournee" data-tournee="'+esc(tn)+'"/><button class="tournee-summary-row" data-action="toggle-select-tournee" data-tournee="'+esc(tn)+'">'+summaryContent+'</button></div>';
+    }
+    return '<button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+summaryContent+'</button>';
   }).join('');
   return'<div class="hour-block"><div class="hour-head"><span class="hour-num">'+h+'H</span><div class="hour-rule"></div></div>'+tourneeHtml+standalone.map(deliveryRow).join('')+'</div>';
 }).join('');}
@@ -1747,8 +1783,11 @@ function renderTourneeDetailModal(){
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
     } else {
-      html+='<button class="btn-primary" style="width:100%;margin-bottom:16px;background:var(--green);" data-action="mark-tournee-delivered" data-tournee="'+esc(tn)+'">✅ Valider toute la tournée livrée</button>';
-      html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
+      html+='<button class="btn-primary" style="width:100%;margin-bottom:8px;background:var(--green);" data-action="mark-tournee-delivered" data-tournee="'+esc(tn)+'">✅ Valider toute la tournée livrée</button>';
+      html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats (toute la tournée)</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
+      html+='<button id="btn-camera" class="btn-camera" style="margin-top:4px;" data-action="take-photo">📷 Prendre une photo constat</button>';
+      html+='<button class="btn-outline" style="width:100%;margin:8px 0 12px;" data-action="share-order-tournee" data-tournee="'+esc(tn)+'">📤 Partager</button>';
+      html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
     }
   }
   html+='<div class="divider"></div>';
@@ -1904,6 +1943,16 @@ if(action==='toggle-select'){
   else state.selected[id]=true;
   render();return;
 }
+if(action==='toggle-select-tournee'){
+  var tnSel=el.getAttribute('data-tournee');
+  var members=state.deliveries.filter(function(d){return d.tourneeNum===tnSel;});
+  var allSel=members.every(function(d){return state.selected[d.id];});
+  members.forEach(function(d){
+    if(allSel)delete state.selected[d.id];
+    else state.selected[d.id]=true;
+  });
+  render();return;
+}
 if(action==='delete-selected'){
   var ids=Object.keys(state.selected);
   if(!ids.length)return;
@@ -1973,13 +2022,21 @@ if(action==='assign-tournee-detail'){
 }
 if(action==='mark-tournee-delivered'){
   var tnD=el.getAttribute('data-tournee');
-  if(!confirm('Marquer toute la tournée '+tnD+' comme livrée ?'))return;
+  if(!confirm('Valider toute la tournée '+tnD+' comme livrée ?'))return;
+  var noteD=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
   var nowIso=new Date().toISOString();
   persist(state.deliveries.map(function(d){
-    if(d.tourneeNum===tnD&&d.status!=='delivered')return Object.assign({},d,{status:'delivered',deliveredAt:nowIso});
+    if(d.tourneeNum===tnD&&d.status!=='delivered')return Object.assign({},d,{status:'delivered',deliveredAt:nowIso,note:noteD||d.note});
     return d;
   }));
+  state.pendingNote='';
   render();
+  return;
+}
+if(action==='share-order-tournee'){
+  var tnS=el.getAttribute('data-tournee');
+  var membersS=state.deliveries.filter(function(d){return d.tourneeNum===tnS;});
+  shareTournee(tnS,membersS);
   return;
 }
 if(action==='self-assign'){assignLivreur(id,state.livreurId);return;}
