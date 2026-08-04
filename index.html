@@ -950,6 +950,27 @@ function extractClientName(text){
   }
   return '';
 }
+function extractProducts(text){
+  var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  var products=[];
+  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire)/i;
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i];
+    // Quantite sur la meme ligne : "Boule T80 65"
+    var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
+    if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&m1[1].trim().length>2){
+      products.push({name:m1[1].trim(),qty:parseInt(m1[2])}); continue;
+    }
+    // Quantite sur la ligne suivante : "Boule T80" puis "65"
+    if(i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())){
+      var qty=parseInt(lines[i+1].trim());
+      if(qty>0&&l.length>2&&!skipProd.test(l)){
+        products.push({name:l,qty:qty}); i++;
+      }
+    }
+  }
+  return products;
+}
 function extractTourneeInfo(text){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var result={tourneeNum:'',tourneeTitle:''};
@@ -993,6 +1014,7 @@ function importBlPdfsBulk(fileList){
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
         var clientName=extractClientName(text);
+        var products=extractProducts(text);
         var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
         if(existing){
           var proceed=confirm('Le BL n°'+blNum+' existe deja pour cette date ("'+existing.client+'").\n\nOK = importer quand meme (creer un doublon)\nAnnuler = garder seulement celui qui existe');
@@ -1001,7 +1023,10 @@ function importBlPdfsBulk(fileList){
         // Si une autre livraison de la MEME tournee existe deja aujourd'hui, on rejoint le groupe :
         // meme livreur (deja assigne ou non), meme titre de tournee.
         var tourneeMate=tourneeInfo.tourneeNum?state.deliveries.find(function(d){return d.tourneeNum===tourneeInfo.tourneeNum;}):null;
-        var entry={id:genId(),client:clientName||(blNum?'BL n°'+blNum:'BL sans numero'),address:'',time:'',ref:blNum?'N° '+blNum:'',instructions:'',status:'pending',deliveredAt:null,
+        var refParts=[];
+        if(blNum)refParts.push('N° '+blNum);
+        products.forEach(function(p){refParts.push(p.name+' x'+p.qty);});
+        var entry={id:genId(),client:clientName||(blNum?'BL n°'+blNum:'BL sans numero'),address:'',time:'',ref:refParts.join(', '),instructions:'',status:'pending',deliveredAt:null,
           livreur:tourneeMate?tourneeMate.livreur:'',livreurPhone:tourneeMate?tourneeMate.livreurPhone:'',
           note:'',blNum:blNum||'',blPdf:originalPdfBase64,
           tourneeNum:tourneeInfo.tourneeNum||'',tourneeTitle:tourneeMate?tourneeMate.tourneeTitle:(tourneeInfo.tourneeTitle||''),
