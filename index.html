@@ -222,6 +222,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .hour-block{margin-bottom:0;}
 .hour-head{display:flex;align-items:center;gap:10px;padding:8px 20px 6px;background:var(--paper-2);border-bottom:1px solid var(--rule);border-top:1px solid var(--rule);}
 .tournee-head{font-size:11px;font-weight:700;color:var(--teal-d);background:var(--teal-l);padding:8px 20px;border-bottom:1px solid var(--rule);letter-spacing:.02em;}
+.tournee-summary-row{width:100%;text-align:left;display:block;background:var(--teal-l);border:none;border-bottom:2px solid var(--teal);cursor:pointer;font-family:var(--body);padding:12px 20px;}
+.tournee-summary-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.tournee-summary-title{font-size:13px;font-weight:700;color:var(--teal-d);}
+.tournee-summary-count{font-size:11px;font-weight:700;color:var(--teal-d);background:#fff;padding:2px 8px;border-radius:10px;flex-shrink:0;}
+.tournee-summary-sub{font-size:11px;color:var(--teal-d);opacity:.85;margin-top:3px;}
 .hour-num{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--red);letter-spacing:.08em;}
 .hour-rule{flex:1;height:1px;background:var(--rule);}
 .delivery-row{width:100%;text-align:left;display:flex;align-items:stretch;background:var(--paper);border-bottom:1px solid var(--rule);cursor:pointer;font-family:var(--body);padding:0;position:relative;transition:background .1s;}
@@ -484,7 +489,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -1526,6 +1531,16 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
   var tourneeHtml=tourneeOrder.map(function(tn){
     var items=byTournee[tn];
     var title=items[0].tourneeTitle;
+    if(state.role==='responsable'){
+      var statusCounts={};
+      items.forEach(function(d){statusCounts[d.status]=(statusCounts[d.status]||0)+1;});
+      var order2=['delivered','pending','absent','refused','incident'];
+      var summary=order2.filter(function(s){return statusCounts[s];}).map(function(s){return statusCounts[s]+' '+STATUS_META[s].label.toLowerCase();}).join(' · ');
+      return '<button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+
+        '<div class="tournee-summary-top"><span class="tournee-summary-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</span><span class="tournee-summary-count">'+items.length+' BL</span></div>'+
+        '<div class="tournee-summary-sub">'+(items[0].livreur?'👤 '+esc(items[0].livreur)+' · ':'')+esc(summary)+'</div>'+
+      '</button>';
+    }
     return '<div class="tournee-group">'+
       '<div class="tournee-head">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+' ('+items.length+' BL)'+(items[0].livreur?' · 👤 '+esc(items[0].livreur):'')+'</div>'+
       items.map(deliveryRow).join('')+
@@ -1716,6 +1731,33 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
   if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
+function renderTourneeDetailModal(){
+  if(!state.selectedTourneeNum)return'';
+  var tn=state.selectedTourneeNum;
+  var items=state.deliveries.filter(function(d){return d.tourneeNum===tn;});
+  if(!items.length){state.selectedTourneeNum=null;return'';}
+  var title=items[0].tourneeTitle;
+  var livreur=items[0].livreur;
+  var allDelivered=items.every(function(d){return d.status==='delivered';});
+  var opts='<option value="">— Choisir un livreur —</option>';
+  state.livreurs.forEach(function(l){var sel=livreur===l.name?' selected':'';opts+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
+  var html='<div class="modal-overlay" data-action="close-tournee"><div class="modal-sheet" data-action="noop">';
+  html+='<div class="modal-head"><h2 class="modal-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</h2><button class="modal-close" data-action="close-tournee">←</button></div>';
+  html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
+  html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
+  if(allDelivered){
+    html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
+  } else {
+    html+='<button class="btn-primary" style="width:100%;margin-bottom:16px;background:var(--green);" data-action="mark-tournee-delivered" data-tournee="'+esc(tn)+'">✅ Marquer toute la tournée livrée</button>';
+    html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
+  }
+  html+='<div class="divider"></div>';
+  html+='<div class="section-lbl">Détail des BL</div>';
+  html+=items.map(deliveryRow).join('');
+  html+='</div></div>';
+  return html;
+}
 function renderResponsableApp(){
   var total=state.deliveries.length,
       delivered=state.deliveries.filter(function(d){return d.status==='delivered';}).length,
@@ -1754,7 +1796,7 @@ function renderResponsableApp(){
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderDetailModal()+renderRapportModal()+renderDashboardModal();
+  html+=renderAddModal()+renderLivreursModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -1917,6 +1959,30 @@ if(action==='share-order'){var delivShare=state.deliveries.find(function(x){retu
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
 if(action==='assign-livreur-tournee'){assignLivreur(id,state.selectedLivreurId,true);return;}
 if(action==='assign-livreur-single'){assignLivreur(id,state.selectedLivreurId,false);return;}
+if(action==='open-tournee'){state.selectedTourneeNum=el.getAttribute('data-tournee');render();return;}
+if(action==='close-tournee'){state.selectedTourneeNum=null;render();return;}
+if(action==='assign-tournee-detail'){
+  var tnA=el.getAttribute('data-tournee');
+  var livSelId=document.getElementById('tn-livreur-select')?document.getElementById('tn-livreur-select').value:'';
+  var livA=getLivreurById(livSelId);
+  persist(state.deliveries.map(function(d){
+    if(d.tourneeNum===tnA)return Object.assign({},d,{livreur:livA?livA.name:'',livreurPhone:livA?livA.phone:''});
+    return d;
+  }));
+  render();
+  return;
+}
+if(action==='mark-tournee-delivered'){
+  var tnD=el.getAttribute('data-tournee');
+  if(!confirm('Marquer toute la tournée '+tnD+' comme livrée ?'))return;
+  var nowIso=new Date().toISOString();
+  persist(state.deliveries.map(function(d){
+    if(d.tourneeNum===tnD&&d.status!=='delivered')return Object.assign({},d,{status:'delivered',deliveredAt:nowIso});
+    return d;
+  }));
+  render();
+  return;
+}
 if(action==='self-assign'){assignLivreur(id,state.livreurId);return;}
 if(action==='self-assign-tournee'){
   var tn=el.getAttribute('data-tournee');
@@ -2007,7 +2073,7 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv,blPdf:state.pdfData?state.pdfData.originalPdfBase64:null});
 }
-else if(action==='select'){state.selectedId=id;state.pendingOutcome='delivered';state.pendingNote='';if(state.role!=='livreur')state.selectedLivreurId='';render();}
+else if(action==='select'){state.selectedId=id;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';if(state.role!=='livreur')state.selectedLivreurId='';render();}
 else if(action==='close-detail'){
   var curD=state.deliveries.find(function(x){return x.id===state.selectedId;});
   if(curD&&curD.status==='pending'){
