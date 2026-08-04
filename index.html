@@ -773,7 +773,7 @@ function exportExcel(dateFrom, dateTo){
   if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
   saveCamionFields();state.camions=loadCamions(state.date);
   dateFrom=dateFrom||state.date;dateTo=dateTo||state.date;
-  var rows1=[['Date','Tournee','Categorie tournee','N BL','Client','Livreur','Statut','Heure livree','Produit','Quantite','Constat','Incident']];
+  var rows1=[['Date','Tournee','Categorie tournee','N BL','Client','Livreur','Statut','Heure livree','Produit','Quantite','Incident']];
   var rows2=[['Date','Livreur','Tel Livreur','N Camion','Heure prise','Heure deposee','Nb livraisons','Signature']];
   var d=new Date(dateFrom+'T00:00:00'), end=new Date(dateTo+'T00:00:00');
   while(d<=end){
@@ -792,10 +792,10 @@ function exportExcel(dateFrom, dateTo){
       var baseRow=[dk,del.tourneeNum||'',del.tourneeTitle||'',del.blNum||'',del.client||'',del.livreur||'',STATUS_META[del.status].label,heureLivree];
       if(items.length){
         items.forEach(function(item){
-          rows1.push(baseRow.concat([item.name,item.qty,del.note||'',isIncident]));
+          rows1.push(baseRow.concat([item.name,item.qty,isIncident]));
         });
       } else {
-        rows1.push(baseRow.concat(['','',del.note||'',isIncident]));
+        rows1.push(baseRow.concat(['','',isIncident]));
       }
     });
 
@@ -810,7 +810,7 @@ function exportExcel(dateFrom, dateTo){
     d.setDate(d.getDate()+1);
   }
   var ws1=XLSX.utils.aoa_to_sheet(rows1),ws2=XLSX.utils.aoa_to_sheet(rows2);
-  ws1['!cols']=autoFitCols(rows1);ws1['!autofilter']={ref:'A1:L'+rows1.length};ws1['!freeze']={ySplit:1};
+  ws1['!cols']=autoFitCols(rows1);ws1['!autofilter']={ref:'A1:K'+rows1.length};ws1['!freeze']={ySplit:1};
   ws2['!cols']=autoFitCols(rows2);ws2['!autofilter']={ref:'A1:H'+rows2.length};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
@@ -1851,6 +1851,9 @@ if(action==='delete-rapport'){
   var delTo=document.getElementById('r-to').value;
   if(!delFrom||!delTo){alert('Sélectionnez une période.');return;}
   if(delFrom>delTo){alert('La date début doit être avant la date fin.');return;}
+  var pwdCheck=prompt('Cette suppression est irréversible. Entrez le mot de passe responsable pour confirmer :');
+  if(pwdCheck===null)return; // annule
+  if(pwdCheck!==MOT_DE_PASSE){alert('Mot de passe incorrect. Suppression annulée.');return;}
   if(!confirm('Supprimer définitivement les tournées (livreur, horaires, signatures) du '+delFrom.split('-').reverse().join('/')+' au '+delTo.split('-').reverse().join('/')+' ?\n\nCette action est irréversible.'))return;
   var dcur=new Date(delFrom+'T00:00:00');var dend=new Date(delTo+'T00:00:00');
   while(dcur<=dend){
