@@ -241,6 +241,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .sp-delivered{background:var(--green-s);color:var(--green);border:1px solid rgba(42,122,58,.2);}
 .sp-absent,.sp-refused,.sp-incident{background:var(--red-s);color:var(--red);border:1px solid rgba(200,40,26,.2);}
 .row-driver{font-size:10px;color:var(--ink-3);}
+.row-pdf-btn{font-size:14px;cursor:pointer;padding:2px 4px;flex-shrink:0;}
 .row-address{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .empty-state{padding:72px 24px;text-align:center;}
 .empty-icon{font-size:36px;margin-bottom:12px;opacity:.35;}
@@ -1119,10 +1120,10 @@ function persist(list){
   doFbSave();
 }
 function addDelivery(data){var entry={id:genId(),client:data.client,address:data.address,time:data.time,ref:data.ref||'',instructions:data.instructions||'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',blPdf:data.blPdf||null,createdAt:new Date().toISOString()};persist(state.deliveries.concat([entry]));if(entry.blPdf)syncDeliveryAttachments(entry.id);state.showAdd=false;state.pdfData=null;render();}
-function assignLivreur(id,livreurId){
+function assignLivreur(id,livreurId,wholeTournee){
   var liv=getLivreurById(livreurId);
   var target=state.deliveries.find(function(d){return d.id===id;});
-  var tourneeNum=target?target.tourneeNum:'';
+  var tourneeNum=(wholeTournee&&target)?target.tourneeNum:'';
   persist(state.deliveries.map(function(d){
     if(d.id===id||(tourneeNum&&d.tourneeNum===tourneeNum)){
       return Object.assign({},d,{livreur:liv?liv.name:'',livreurPhone:liv?liv.phone:''});
@@ -1493,7 +1494,9 @@ function deliveryRow(d){
   var meta=STATUS_META[d.status];
   var nbPhotos=getDeliveryPhotos(d).length;
   var stuckWarning=nbPhotos&&d.status==='pending';
-  var content='<div class="row-indicator '+meta.ind+'"></div><div class="row-body"><div class="row-top"><span class="row-time">'+esc(d.time)+'</span><span class="row-client">'+esc(d.client)+'</span>'+(nbPhotos?'<span class="spill" style="'+(stuckWarning?'background:#FEF4E6;color:#8A5A10;border:1px solid #F0D9B5;':'background:var(--paper-2);color:var(--ink-2);border:1px solid var(--rule);')+'" title="'+(stuckWarning?'Photos prises mais pointage non valide':'')+'">🖼️ '+nbPhotos+(stuckWarning?' ⚠️':'')+'</span>':'')+'<span class="spill '+meta.sp+'">'+meta.label+'</span></div><div class="row-address">'+esc(d.address)+'</div>'+(d.livreur?'<div class="row-driver">👤 '+esc(d.livreur)+'</div>':'')+'</div>';
+  var tourneeBadge=d.tourneeNum?'<span class="spill" style="background:var(--teal-l);color:var(--teal-d);border:1px solid var(--teal);" title="Tournee">🚛 '+esc(d.tourneeNum)+'</span>':'';
+  var pdfIcon=(state.role==='responsable'&&d.blPdf)?'<span class="row-pdf-btn" data-action="download-bl" data-id="'+d.id+'" title="Ouvrir le BL">📄</span>':'';
+  var content='<div class="row-indicator '+meta.ind+'"></div><div class="row-body"><div class="row-top"><span class="row-time">'+esc(d.time)+'</span><span class="row-client">'+esc(d.client)+'</span>'+tourneeBadge+pdfIcon+(nbPhotos?'<span class="spill" style="'+(stuckWarning?'background:#FEF4E6;color:#8A5A10;border:1px solid #F0D9B5;':'background:var(--paper-2);color:var(--ink-2);border:1px solid var(--rule);')+'" title="'+(stuckWarning?'Photos prises mais pointage non valide':'')+'">🖼️ '+nbPhotos+(stuckWarning?' ⚠️':'')+'</span>':'')+'<span class="spill '+meta.sp+'">'+meta.label+'</span></div><div class="row-address">'+esc(d.address)+'</div>'+(d.livreur?'<div class="row-driver">👤 '+esc(d.livreur)+'</div>':'')+'</div>';
   if(state.selMode){
     var chk=state.selected[d.id]?'checked':'';
     return'<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+chk+' data-action="toggle-select" data-id="'+d.id+'"/><button class="delivery-row" data-action="toggle-select" data-id="'+d.id+'">'+content+'</button></div>';
@@ -1613,9 +1616,32 @@ function renderLivreurApp(){
   html+='<button style="width:100%;padding:10px;margin-top:6px;border-radius:8px;border:1.5px dashed var(--teal);background:none;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;" data-action="add-camion">+ Ajouter un camion</button>';
   var unassigned=state.deliveries.filter(function(d){return d.status==='pending'&&!d.livreur;});
   if(unassigned.length){
+    var byTn={},tnOrder=[],soloItems=[];
+    unassigned.forEach(function(d){
+      if(d.tourneeNum){
+        if(!byTn[d.tourneeNum]){byTn[d.tourneeNum]=[];tnOrder.push(d.tourneeNum);}
+        byTn[d.tourneeNum].push(d);
+      } else { soloItems.push(d); }
+    });
     html+='<div style="padding:16px;background:var(--paper-2);border-bottom:2px solid var(--rule);">'+
       '<div style="font-size:10px;font-weight:700;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">📋 Tournées disponibles ('+unassigned.length+')</div>'+
-      unassigned.map(function(d){
+      tnOrder.map(function(tn){
+        var items=byTn[tn];
+        var title=items[0].tourneeTitle;
+        return '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin-bottom:8px;">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">'+
+            '<div style="font-weight:700;font-size:13px;">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+' ('+items.length+' BL)</div>'+
+            '<button class="btn-outline" style="flex:0 0 auto;padding:8px 12px;font-size:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="self-assign-tournee" data-tournee="'+esc(tn)+'">Prendre toute la tournée</button>'+
+          '</div>'+
+          items.map(function(d){
+            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--rule);">'+
+              '<div style="min-width:0;font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.client)+'</div>'+
+              '<button class="btn-outline" style="flex:0 0 auto;padding:5px 10px;font-size:11px;" data-action="self-assign" data-id="'+d.id+'">Prendre ce BL</button>'+
+            '</div>';
+          }).join('')+
+        '</div>';
+      }).join('')+
+      soloItems.map(function(d){
         return '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">'+
           '<div style="min-width:0;"><div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.client)+'</div>'+(d.blNum?'<div style="font-size:11px;color:var(--ink-3);">N° '+esc(d.blNum)+'</div>':'')+'</div>'+
           '<button class="btn-outline" style="flex:0 0 auto;padding:8px 14px;font-size:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="self-assign" data-id="'+d.id+'">Prendre</button>'+
@@ -1661,7 +1687,13 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
         html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="f-livreur-select">'+opts2+'</select></div>';
         var curLiv=state.livreurs.find(function(l){return l.name===d.livreur;});
         if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
-        html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
+        if(d.tourneeNum){
+          var tourneeCount=state.deliveries.filter(function(x){return x.tourneeNum===d.tourneeNum;}).length;
+          html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur-tournee" data-id="'+d.id+'">👤 Assigner toute la tournée '+esc(d.tourneeNum)+' ('+tourneeCount+' BL)</button>';
+          html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur-single" data-id="'+d.id+'">👤 Assigner ce BL uniquement</button>';
+        } else {
+          html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
+        }
         html+='<div class="outcome-grid">';
         OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
         html+='</div>';
@@ -1883,7 +1915,21 @@ if(action==='download-bl'){
 }
 if(action==='share-order'){var delivShare=state.deliveries.find(function(x){return x.id===id;});if(delivShare)shareOrder(delivShare);return;}
 if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
+if(action==='assign-livreur-tournee'){assignLivreur(id,state.selectedLivreurId,true);return;}
+if(action==='assign-livreur-single'){assignLivreur(id,state.selectedLivreurId,false);return;}
 if(action==='self-assign'){assignLivreur(id,state.livreurId);return;}
+if(action==='self-assign-tournee'){
+  var tn=el.getAttribute('data-tournee');
+  var liv=getLivreurById(state.livreurId);
+  persist(state.deliveries.map(function(d){
+    if(d.tourneeNum===tn&&d.status==='pending'&&!d.livreur){
+      return Object.assign({},d,{livreur:liv?liv.name:'',livreurPhone:liv?liv.phone:''});
+    }
+    return d;
+  }));
+  render();
+  return;
+}
 if(action==='reassign-livreur'){
   // Réassigner sans pointer — garder en attente
   var newLivId=document.getElementById('f-livreur-select')?document.getElementById('f-livreur-select').value:state.selectedLivreurId;
