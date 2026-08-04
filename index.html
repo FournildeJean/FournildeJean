@@ -540,20 +540,6 @@ function shareOrder(d){
     window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
   }
 }
-function buildTourneeRecapText(tourneeNum,members){
-  var title=members[0]&&members[0].tourneeTitle;
-  var lines=[];
-  lines.push('🌾 Fournil de Jean');
-  lines.push('');
-  lines.push('Tournée '+tourneeNum+(title?' — '+title:'')+' ('+members.length+' BL)');
-  lines.push('');
-  members.forEach(function(d){
-    lines.push('- '+d.client+' : '+STATUS_META[d.status].label.toUpperCase());
-  });
-  var notes=members.map(function(d){return d.note;}).filter(Boolean);
-  if(notes.length){lines.push('');lines.push('Constat : '+notes.join(' | '));}
-  return lines.join('\n');
-}
 function mergeTourneePdfs(tourneeNum){
   if(typeof PDFLib==='undefined'){
     alert('La fusion PDF n\'est pas disponible (bibliothèque non chargée). Vérifiez votre connexion internet et réessayez.');
@@ -587,17 +573,6 @@ function mergeTourneePdfs(tourneeNum){
       alert('Erreur lors de la fusion des PDF : '+err.message+'\n\nVous pouvez toujours ouvrir chaque BL individuellement.');
     }
   })();
-}
-function shareTournee(tourneeNum,members){
-  var text=buildTourneeRecapText(tourneeNum,members);
-  if(navigator.share){
-    navigator.share({title:'Tournée '+tourneeNum, text:text}).catch(function(err){
-      if(err && err.name==='AbortError')return;
-      window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
-    });
-  } else {
-    window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
-  }
 }
 function renderShareRow(d){
   if(state.role!=='responsable')return''; // le partage est reserve a l'espace responsable
@@ -1527,7 +1502,7 @@ function deliveryRow(d){
 function renderTimeline(onlyPending){if(state.loading)return'<div class="loading-state"><div class="spinner"></div><span style="font-size:12px;">Chargement...</span></div>';var list=state.deliveries.slice();
   if(onlyPending){
     list=list.filter(function(d){
-      if(d.status!=='pending') return false;
+      if(d.status==='delivered') return false; // les BL livres disparaissent ; les non-livres (en attente, absent, refuse, incident) restent visibles
       // Livreur : seulement ses livraisons assignées
       if(state.role==='livreur') return d.livreur===state.livreurName;
       return true;
@@ -1769,10 +1744,7 @@ function renderTourneeDetailModal(){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
     } else {
       html+='<button class="btn-primary" style="width:100%;margin-bottom:8px;background:var(--green);" data-action="mark-tournee-delivered" data-tournee="'+esc(tn)+'">✅ Valider toute la tournée livrée</button>';
-      html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats (toute la tournée)</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
-      html+='<button id="btn-camera" class="btn-camera" style="margin-top:4px;" data-action="take-photo">📷 Prendre une photo constat</button>';
-      html+='<button class="btn-outline" style="width:100%;margin:8px 0 12px;" data-action="share-order-tournee" data-tournee="'+esc(tn)+'">📤 Partager</button>';
-      html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
+      html+='<div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
     }
   }
   html+='<div class="divider"></div>';
@@ -2023,12 +1995,6 @@ if(action==='mark-tournee-delivered'){
   }));
   state.pendingNote='';
   render();
-  return;
-}
-if(action==='share-order-tournee'){
-  var tnS=el.getAttribute('data-tournee');
-  var membersS=state.deliveries.filter(function(d){return d.tourneeNum===tnS;});
-  shareTournee(tnS,membersS);
   return;
 }
 if(action==='self-assign'){assignLivreur(id,state.livreurId);return;}
