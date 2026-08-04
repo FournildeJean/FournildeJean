@@ -773,7 +773,7 @@ function exportExcel(dateFrom, dateTo){
   if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
   saveCamionFields();state.camions=loadCamions(state.date);
   dateFrom=dateFrom||state.date;dateTo=dateTo||state.date;
-  var rows1=[['Date','Heure prevue','Reference BL','Client','Adresse','Commande','Statut','Livreur','Tel Livreur','Heure livree','Constats']];
+  var rows1=[['Date','Tournee','Categorie tournee','N BL','Client','Livreur','Statut','Heure prevue','Heure livree','Produit','Quantite','Constat','Incident']];
   var rows2=[['Date','Livreur','Tel Livreur','N Camion','Heure prise','Heure deposee','Nb livraisons','Signature']];
   var d=new Date(dateFrom+'T00:00:00'), end=new Date(dateTo+'T00:00:00');
   while(d<=end){
@@ -785,7 +785,19 @@ function exportExcel(dateFrom, dateTo){
     try{var rawc=localStorage.getItem('fdj-camions:'+dk);if(rawc)dayCamions=JSON.parse(rawc)||[];}catch(e){}
 
     var sorted=dayDeliveries.slice().sort(function(a,b){return(a.time||'').localeCompare(b.time||'');});
-    sorted.forEach(function(del){rows1.push([dk,del.time||'',del.ref||'',del.client||'',del.address||'',del.ref||'',STATUS_META[del.status].label,del.livreur||'',del.livreurPhone||'',del.deliveredAt?new Date(del.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'',del.note||'']);});
+    sorted.forEach(function(del){
+      var isIncident=['absent','refused','incident'].indexOf(del.status)!==-1?'Oui':'Non';
+      var heureLivree=del.deliveredAt?new Date(del.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
+      var items=del.ref?parseProductItemsStrict(del.ref):[];
+      var baseRow=[dk,del.tourneeNum||'',del.tourneeTitle||'',del.blNum||'',del.client||'',del.livreur||'',STATUS_META[del.status].label,del.time||'',heureLivree];
+      if(items.length){
+        items.forEach(function(item){
+          rows1.push(baseRow.concat([item.name,item.qty,del.note||'',isIncident]));
+        });
+      } else {
+        rows1.push(baseRow.concat(['','',del.note||'',isIncident]));
+      }
+    });
 
     state.livreurs.forEach(function(liv){
       var cams=dayCamions.filter(function(c){return c.livreurId===liv.id;});
@@ -798,9 +810,9 @@ function exportExcel(dateFrom, dateTo){
     d.setDate(d.getDate()+1);
   }
   var ws1=XLSX.utils.aoa_to_sheet(rows1),ws2=XLSX.utils.aoa_to_sheet(rows2);
-  ws1['!cols']=[{wch:14},{wch:14},{wch:20},{wch:34},{wch:44},{wch:34},{wch:16},{wch:26},{wch:18},{wch:14},{wch:38}];ws1['!autofilter']={ref:'A1:K'+rows1.length};
-  ws2['!cols']=[{wch:14},{wch:28},{wch:18},{wch:16},{wch:16},{wch:18},{wch:24},{wch:12}];ws2['!autofilter']={ref:'A1:G'+rows2.length};
-  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'BL - Historique livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');
+  ws1['!cols']=autoFitCols(rows1);ws1['!autofilter']={ref:'A1:M'+rows1.length};ws1['!freeze']={ySplit:1};
+  ws2['!cols']=autoFitCols(rows2);ws2['!autofilter']={ref:'A1:H'+rows2.length};
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
   XLSX.writeFile(wb,'tournee-'+suffix+'.xlsx');
 }
@@ -819,69 +831,6 @@ function parseProductItemsStrict(ref){
     else if(m2){out.push({name:m2[2].trim(),qty:parseInt(m2[1])});}
   });
   return out;
-}
-function generateBL(formData){
-  var blNum=formData.blNum||'';
-  var client=formData.client||'';
-  var address=formData.address||'';
-  var date=formData.date||new Date().toLocaleDateString('fr-FR');
-  var time=formData.time||'';
-  var products=formData.products||[];
-  var instructions=formData.instructions||'';
-  // Séparer adresse et ville
-  var addrParts=address.split(',');
-  var street=(addrParts[0]||'').trim();
-  var city=(addrParts[1]||'').trim();
-  // Extraire tel des instructions
-  var telM=instructions.match(/T[eé]l\s*[:\-]\s*([\d\-\.]{10,14})/i);
-  var tel=telM?telM[1].trim():'';
-  // Construire les lignes produits
-  var prodRows='';
-  products.filter(function(p){return p.name&&p.name.trim();}).forEach(function(p){
-    prodRows+='<tr><td style="border:1px solid #000;padding:6px 10px;"></td>'+
-      '<td style="border:1px solid #000;padding:6px 10px;">'+esc(p.name)+'</td>'+
-      '<td style="border:1px solid #000;padding:6px 10px;text-align:right;">'+(p.qty?esc(p.qty):'')+'</td>'+
-      '<td style="border:1px solid #000;padding:6px 10px;"></td></tr>';
-  });
-  // Lignes vides pour remplir comme l'original
-  var instrRow=instructions?'<tr><td style="border:1px solid #000;padding:6px 10px;" colspan="4"><em>'+esc(instructions.replace(/T[eé]l[^|]+\|\s*/i,'').trim())+'</em></td></tr>':'';
-  var emptyRows='';
-  var filled=products.filter(function(p){return p.name;}).length+(instructions?1:0);
-  for(var i=filled;i<16;i++) emptyRows+='<tr><td style="border:1px solid #000;height:22px;"></td><td style="border:1px solid #000;"></td><td style="border:1px solid #000;"></td><td style="border:1px solid #000;"></td></tr>';
-  // Formater date
-  var dateDisplay=date;
-  if(date&&date.includes('-')){var dp=date.split('-');dateDisplay=dp[2]+'/'+dp[1]+'/'+dp[0];}
-  var html='<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>BON DE LIVRAISON '+esc(blNum)+'</title>'+
-'<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;font-size:12px;color:#000;background:#fff;padding:20px 24px;}'+
-'.no-print{margin-bottom:14px;}.logo-wrap{display:inline-block;border:2px solid #E8823A;padding:4px 8px;}.logo-top{font-size:9px;font-weight:700;color:#E8823A;letter-spacing:.15em;text-transform:uppercase;}.logo-main{font-size:20px;font-weight:900;color:#1A1208;line-height:1;letter-spacing:-.5px;}.logo-sub{font-size:8px;color:#777;font-style:italic;margin-top:1px;}'+
-'.page-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;}'+
-'.bl-info{text-align:right;font-size:13px;font-weight:700;line-height:1.8;}'+
-'.sender-client{display:flex;gap:24px;margin-bottom:10px;}'+
-'.sender{flex:1;font-size:11px;line-height:1.75;}.sender-name{font-size:14px;font-weight:700;margin-bottom:4px;}'+
-'.client-box{flex:1.3;border:1px solid #777;padding:10px 14px;min-height:110px;font-size:11px;line-height:1.8;}.client-box-name{font-size:13px;font-weight:700;margin-bottom:4px;}'+
-'.meta-row{display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px;}'+
-'.tel-row{font-size:11px;margin-bottom:10px;}'+
-'table{width:100%;border-collapse:collapse;}th{border:1px solid #000;padding:6px 10px;font-size:11px;font-weight:normal;text-align:left;}th:nth-child(3){text-align:right;}'+
-'.footer{margin-top:20px;padding-top:8px;border-top:1px solid #bbb;font-size:9px;text-align:center;color:#555;font-weight:700;}'+
-'@media print{.no-print{display:none;}body{padding:10px 14px;}}</style></head><body>'+
-'<div class="no-print"><button onclick="window.print()" style="padding:10px 22px;background:#1A1208;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:14px;">🖨 Imprimer / Télécharger PDF</button></div>'+
-'<div class="page-header">'+
-  '<div><div class="logo-wrap"><div class="logo-top">Atelier</div><div class="logo-main">DU PAIN</div><div class="logo-sub">Fournil de Jean</div></div></div>'+
-  '<div class="bl-info"><div>Tournée : 00</div><div>EVENEMENTIEL</div><div style="margin-top:6px;">BON DE LIVRAISON</div><div>N° '+esc(blNum)+'</div></div>'+
-'</div>'+
-'<div class="sender-client">'+
-  '<div class="sender"><div class="sender-name">SAS SLAF</div><div>37 rue Pierre Boulanger</div><div>&nbsp;</div><div>63100 CLERMONT-FERRAND</div><div>Standard. : 04 73 91 64 30 - Facturation :</div><div>Email&nbsp;&nbsp; administratif@fournildejean.fr</div></div>'+
-  '<div class="client-box"><div class="client-box-name">'+esc(client)+'</div><div>'+esc(street)+'</div><div>&nbsp;</div><div>'+esc(city)+'</div><div>Tel: '+esc(tel)+'</div><div>Mob:</div></div>'+
-'</div>'+
-'<div class="meta-row"><span>Le : '+esc(dateDisplay)+(time?' &nbsp;&nbsp; Heure : '+esc(time):'')+'</span><span>Page 1 / 1</span></div>'+
-(tel?'<div class="tel-row">T&eacute;l : '+esc(tel)+'</div>':'<div class="tel-row">&nbsp;</div>')+
-'<table><thead><tr><th style="width:80px;">Code</th><th>D&eacute;signation</th><th style="width:90px;">Quantit&eacute;</th><th style="width:100px;"></th></tr></thead>'+
-'<tbody>'+prodRows+instrRow+emptyRows+'</tbody></table>'+
-'<div class="footer">Relev&eacute; d\'identit&eacute; bancaire - IBAN : FR76 1680 6051 0066 0752 2763 026 - CODE BIC : AGRIFRPP868</div>'+
-'</body></html>';
-  var w=window.open('','_blank');
-  if(w){w.document.write(html);w.document.close();}
-  else alert('Autorisez les popups pour telecharger le BL.');
 }
 function generateInvoice(d){var client=d.client||'',address=d.address||'',ref=d.ref||'';var date=d.deliveredAt?new Date(d.deliveredAt).toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');var num='FAC-'+new Date().getFullYear()+'-'+Date.now().toString().slice(-5);var items=parseItems(ref);if(!items.length)items=[{name:'Produits de boulangerie',qty:1}];var totalHT=items.reduce(function(s,i){return s+i.qty*PRIX_HT;},0);var montantTVA=totalHT*TVA_RATE;var totalTTC=totalHT+montantTVA;var rows=items.map(function(i){var ht=(i.qty*PRIX_HT).toFixed(2);return'<tr><td style="padding:7px 10px;border-bottom:1px solid #EDE8DF;">'+i.name+'</td><td style="padding:7px 10px;border-bottom:1px solid #EDE8DF;text-align:center;">'+i.qty+'</td><td style="padding:7px 10px;border-bottom:1px solid #EDE8DF;text-align:right;">'+PRIX_HT.toFixed(2)+' €</td><td style="padding:7px 10px;border-bottom:1px solid #EDE8DF;text-align:right;">'+ht+' €</td></tr>';}).join('');var html='<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Facture '+num+'</title><style>*{box-sizing:border-box;}body{font-family:Georgia,serif;margin:0;padding:32px;color:#1A1208;background:#F7F3EC;}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid #1A1208;}.brand-name{font-size:24px;font-weight:400;color:#1A1208;margin:0 0 4px;}.brand-info{font-size:11px;color:#8A7A68;line-height:1.6;font-family:Arial,sans-serif;}.invoice-badge{background:#C8281A;color:#fff;font-size:13px;font-weight:700;padding:5px 14px;border-radius:3px;display:inline-block;margin-bottom:6px;letter-spacing:.06em;text-transform:uppercase;font-family:Arial,sans-serif;}.invoice-num{font-size:11px;color:#8A7A68;margin:2px 0;font-family:Arial,sans-serif;}.client-block{background:#fff;border-left:4px solid #C8281A;padding:12px 16px;margin-bottom:20px;}.block-label{font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#8A7A68;margin-bottom:4px;font-family:Arial,sans-serif;}.client-name{font-weight:700;font-size:14px;color:#1A1208;font-family:Arial,sans-serif;}.client-addr{font-size:12px;color:#8A7A68;margin-top:2px;font-family:Arial,sans-serif;}table{width:100%;border-collapse:collapse;font-family:Arial,sans-serif;}thead tr{background:#1A1208;}thead th{color:#F7F3EC;padding:8px 10px;text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;}thead th:not(:first-child){text-align:right;}.totals{margin-top:16px;display:flex;justify-content:flex-end;}.totals-box{width:280px;}.total-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #EDE8DF;font-family:Arial,sans-serif;}.total-row.ttc{font-weight:700;font-size:15px;border-top:2px solid #1A1208;border-bottom:none;padding-top:8px;}.mention{margin-top:24px;font-size:10px;color:#8A7A68;border-top:1px solid #EDE8DF;padding-top:12px;font-family:Arial,sans-serif;}@media print{.no-print{display:none;}}</style></head><body><div class="no-print" style="margin-bottom:20px;font-family:Arial,sans-serif;"><button onclick="window.print()" style="padding:10px 20px;background:#1A1208;color:#F7F3EC;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:14px;">Imprimer / PDF</button></div><div class="header"><div><p class="brand-name">Fournil de Jean</p><div class="brand-info">37 rue Pierre Boulanger — 63100 Clermont-Ferrand<br>Tel : 04 73 91 64 30</div></div><div style="text-align:right"><div class="invoice-badge">Facture</div><p class="invoice-num">N° '+num+'</p><p class="invoice-num">Date : '+date+'</p></div></div><div class="client-block"><div class="block-label">Facturé à</div><div class="client-name">'+esc(client)+'</div><div class="client-addr">'+esc(address)+'</div></div><table><thead><tr><th>Désignation</th><th style="text-align:right;">Qté</th><th style="text-align:right;">Prix HT</th><th style="text-align:right;">Total HT</th></tr></thead><tbody>'+rows+'</tbody></table><div class="totals"><div class="totals-box"><div class="total-row"><span>Total HT</span><span>'+totalHT.toFixed(2)+' €</span></div><div class="total-row"><span>TVA (5,5%)</span><span>'+montantTVA.toFixed(2)+' €</span></div><div class="total-row ttc"><span>Total TTC</span><span>'+totalTTC.toFixed(2)+' €</span></div></div></div><div class="mention">TVA 5,5% — Produits de boulangerie (Article 278-0 bis du CGI)</div></body></html>';var w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}else alert('Autorisez les popups.');}
 
@@ -990,6 +939,17 @@ function extractBlNumber(text){
   var m=text.match(/N[°o\.\s]*(BL[\w\/\-]+)/i);
   return m?m[1].trim():'';
 }
+function extractClientName(text){
+  var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  var skipStreet=/boulanger|facturation|standard|clermont/i;
+  for(var i=0;i<lines.length;i++){
+    if(/\d+\s+(avenue|rue|place|chemin|impasse|boulevard|allée|route)/i.test(lines[i])&&!skipStreet.test(lines[i])){
+      if(i>0)return lines[i-1]; // le nom est toujours la ligne juste au-dessus de l'adresse, dans le cadre
+      break;
+    }
+  }
+  return '';
+}
 function extractTourneeInfo(text){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var result={tourneeNum:'',tourneeTitle:''};
@@ -1032,6 +992,7 @@ function importBlPdfsBulk(fileList){
       extractPdfPageText(e.target.result).then(function(text){
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
+        var clientName=extractClientName(text);
         var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
         if(existing){
           var proceed=confirm('Le BL n°'+blNum+' existe deja pour cette date ("'+existing.client+'").\n\nOK = importer quand meme (creer un doublon)\nAnnuler = garder seulement celui qui existe');
@@ -1040,7 +1001,7 @@ function importBlPdfsBulk(fileList){
         // Si une autre livraison de la MEME tournee existe deja aujourd'hui, on rejoint le groupe :
         // meme livreur (deja assigne ou non), meme titre de tournee.
         var tourneeMate=tourneeInfo.tourneeNum?state.deliveries.find(function(d){return d.tourneeNum===tourneeInfo.tourneeNum;}):null;
-        var entry={id:genId(),client:blNum?'BL n°'+blNum:'BL sans numero',address:'',time:'',ref:'',instructions:'',status:'pending',deliveredAt:null,
+        var entry={id:genId(),client:clientName||(blNum?'BL n°'+blNum:'BL sans numero'),address:'',time:'',ref:blNum?'N° '+blNum:'',instructions:'',status:'pending',deliveredAt:null,
           livreur:tourneeMate?tourneeMate.livreur:'',livreurPhone:tourneeMate?tourneeMate.livreurPhone:'',
           note:'',blNum:blNum||'',blPdf:originalPdfBase64,
           tourneeNum:tourneeInfo.tourneeNum||'',tourneeTitle:tourneeMate?tourneeMate.tourneeTitle:(tourneeInfo.tourneeTitle||''),
@@ -1415,8 +1376,7 @@ function renderDashboardModal(){
       '</div>'+
       body+
       (stats?'<button class="btn-outline" style="width:100%;margin-top:6px;padding:11px;" data-action="print-dashboard">🖨 Version imprimable / PDF</button>':'')+
-      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-dashboard-excel">💾 Export Excel (tableau croisé dynamique)</button>':'')+
-      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-detailed-excel">📋 Export détaillé (BL + Camions)</button>':'')+
+      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-detailed-excel">💾 Export Excel (Livraisons + Camions)</button>':'')+
     '</div>'+
   '</div>';
 }
@@ -1429,45 +1389,6 @@ function autoFitCols(rows){
     });
   });
   return widths.map(function(w){return {wch:w};});
-}
-function buildDashboardFlatRows(dateFrom, dateTo){
-  var rows=[];
-  var d=new Date(dateFrom+'T00:00:00'), end=new Date(dateTo+'T00:00:00');
-  while(d<=end){
-    var dk=toLocalISODate(d);
-    var list=[];
-    try{var raw=localStorage.getItem('fdj-tournee:'+dk);if(raw)list=JSON.parse(raw)||[];}catch(e){}
-    list=list.filter(function(del){return del.status!=='pending';}); // seuls les BL finalises (Livre/Absent/Incident/Refuse)
-    list.forEach(function(del){
-      var statusLabel=(STATUS_META[del.status]||{}).label||del.status;
-      var isIncident=['absent','refused','incident'].indexOf(del.status)!==-1?'Oui':'Non';
-      var items=del.ref?parseProductItemsStrict(del.ref):[];
-      if(items.length){
-        items.forEach(function(item){
-          rows.push([dk, del.client||'', del.livreur||'', statusLabel, item.name, item.qty, isIncident]);
-        });
-      } else {
-        rows.push([dk, del.client||'', del.livreur||'', statusLabel, '', '', isIncident]);
-      }
-    });
-    d.setDate(d.getDate()+1);
-  }
-  return rows;
-}
-function exportDashboardExcel(dateFrom, dateTo){
-  if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
-  var header=['Date','Client','Livreur','Statut','Produit','Quantite','Incident'];
-  var dataRows=buildDashboardFlatRows(dateFrom,dateTo);
-  if(!dataRows.length){alert('Aucune donnee pour cette periode.');return;}
-  var rows=[header].concat(dataRows);
-
-  var ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=autoFitCols(rows);
-  ws['!autofilter']={ref:'A1:G'+rows.length};
-
-  var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,'Donnees');
-  XLSX.writeFile(wb,'bilan-'+dateFrom+'-au-'+dateTo+'.xlsx');
 }
 function printDashboard(dateFrom, dateTo){
   var stats=computeDashboardStats(dateFrom,dateTo);
@@ -1534,7 +1455,7 @@ function deliveryRow(d){
   var nbPhotos=getDeliveryPhotos(d).length;
   var stuckWarning=nbPhotos&&d.status==='pending';
   var tourneeBadge=d.tourneeNum?'<span class="spill" style="background:var(--teal-l);color:var(--teal-d);border:1px solid var(--teal);" title="Tournee">🚛 '+esc(d.tourneeNum)+'</span>':'';
-  var pdfIcon=(state.role==='responsable'&&d.blPdf)?'<span class="row-pdf-btn" data-action="download-bl" data-id="'+d.id+'" title="Ouvrir le BL">📄</span>':'';
+  var pdfIcon=d.blPdf?'<span class="row-pdf-btn" data-action="download-bl" data-id="'+d.id+'" title="Ouvrir le BL">📄</span>':'';
   var content='<div class="row-indicator '+meta.ind+'"></div><div class="row-body"><div class="row-top"><span class="row-time">'+esc(d.time)+'</span><span class="row-client">'+esc(d.client)+'</span>'+tourneeBadge+pdfIcon+(nbPhotos?'<span class="spill" style="'+(stuckWarning?'background:#FEF4E6;color:#8A5A10;border:1px solid #F0D9B5;':'background:var(--paper-2);color:var(--ink-2);border:1px solid var(--rule);')+'" title="'+(stuckWarning?'Photos prises mais pointage non valide':'')+'">🖼️ '+nbPhotos+(stuckWarning?' ⚠️':'')+'</span>':'')+'<span class="spill '+meta.sp+'">'+meta.label+'</span></div><div class="row-address">'+esc(d.address)+'</div>'+(d.livreur?'<div class="row-driver">👤 '+esc(d.livreur)+'</div>':'')+'</div>';
   if(state.selMode){
     var chk=state.selected[d.id]?'checked':'';
@@ -1887,11 +1808,6 @@ if(action==='print-dashboard'){
   if(r)printDashboard(r.from,r.to);
   return;
 }
-if(action==='export-dashboard-excel'){
-  var re=state._dashboardRange;
-  if(re)exportDashboardExcel(re.from,re.to);
-  return;
-}
 if(action==='export-detailed-excel'){
   var red=state._dashboardRange;
   if(red)exportExcel(red.from,red.to);
@@ -2079,28 +1995,6 @@ else if(action==='delete-camion'){
   return;
 }
 else if(action==='close-add'){state.showAdd=false;state.pdfData=null;render();}
-else if(action==='download-bl'){
-  var blEl=document.getElementById('f-bl');
-  var pNames=document.querySelectorAll('.prod-name');
-  var pQtys=document.querySelectorAll('.prod-qty');
-  var prods=[];
-  for(var pi=0;pi<pNames.length;pi++){
-    var pn=pNames[pi].value.trim();
-    var pq=pQtys[pi]?pQtys[pi].value.trim():'';
-    if(pn) prods.push({name:pn,qty:pq});
-  }
-  var telM=(document.getElementById('f-instructions')||{value:''}).value.match(/T[eé]l\s*[:\-]\s*([\d\-\.]+)/i);
-  generateBL({
-    blNum:blEl?blEl.value.trim():'',
-    client:(document.getElementById('f-client')||{value:''}).value.trim(),
-    address:(document.getElementById('f-address')||{value:''}).value.trim(),
-    date:(document.getElementById('f-date')||{value:''}).value,
-    time:(document.getElementById('f-time')||{value:''}).value,
-    instructions:(document.getElementById('f-instructions')||{value:''}).value.trim(),
-    tel:telM?telM[1]:'',
-    products:prods
-  });
-}
 else if(action==='add-prod-row'){
   var fp=document.getElementById('f-products');
   if(fp){var nr=document.createElement('div');nr.className='prod-row';nr.innerHTML='<input class="prod-name" placeholder="Désignation" value=""/><input class="prod-qty" type="text" inputmode="numeric" maxlength="5" placeholder="Qté" value=""/><button type="button" class="prod-del" data-action="del-prod-row">✕</button>';fp.appendChild(nr);}
