@@ -221,6 +221,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 /* REGISTRE */
 .hour-block{margin-bottom:0;}
 .hour-head{display:flex;align-items:center;gap:10px;padding:8px 20px 6px;background:var(--paper-2);border-bottom:1px solid var(--rule);border-top:1px solid var(--rule);}
+.tournee-head{font-size:11px;font-weight:700;color:var(--teal-d);background:var(--teal-l);padding:8px 20px;border-bottom:1px solid var(--rule);letter-spacing:.02em;}
 .hour-num{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--red);letter-spacing:.08em;}
 .hour-rule{flex:1;height:1px;background:var(--rule);}
 .delivery-row{width:100%;text-align:left;display:flex;align-items:stretch;background:var(--paper);border-bottom:1px solid var(--rule);cursor:pointer;font-family:var(--body);padding:0;position:relative;transition:background .1s;}
@@ -950,6 +951,24 @@ function extractBlNumber(text){
   var m=text.match(/N[°o\.\s]*(BL[\w\/\-]+)/i);
   return m?m[1].trim():'';
 }
+function extractTourneeInfo(text){
+  var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  var result={tourneeNum:'',tourneeTitle:''};
+  for(var i=0;i<lines.length;i++){
+    var m=lines[i].match(/Tourn[eé]e\s*:\s*(\S+)/i);
+    if(m){
+      result.tourneeNum=m[1].trim();
+      // Le titre/categorie est generalement sur la ligne suivante (ex: "EVENEMENTIEL")
+      for(var j=i+1;j<lines.length;j++){
+        if(lines[j]&&!/^(bon de livraison|n[°o]\s*bl)/i.test(lines[j])){
+          result.tourneeTitle=lines[j];break;
+        }
+      }
+      break;
+    }
+  }
+  return result;
+}
 function importBlPdfsBulk(fileList){
   if(!window.pdfjsLib){state.errorMsg='Lecture PDF indisponible (bibliotheque non chargee). Reessayez plus tard.';render();return;}
   var files=Array.prototype.slice.call(fileList);
@@ -973,12 +992,20 @@ function importBlPdfsBulk(fileList){
       var originalPdfBase64=arrayBufferToBase64(e.target.result);
       extractPdfPageText(e.target.result).then(function(text){
         var blNum=extractBlNumber(text);
+        var tourneeInfo=extractTourneeInfo(text);
         var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
         if(existing){
           var proceed=confirm('Le BL n°'+blNum+' existe deja pour cette date ("'+existing.client+'").\n\nOK = importer quand meme (creer un doublon)\nAnnuler = garder seulement celui qui existe');
           if(!proceed){results.duplicates++;processNext(i+1);return;}
         }
-        var entry={id:genId(),client:blNum?'BL n°'+blNum:'BL sans numero',address:'',time:'',ref:'',instructions:'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',blNum:blNum||'',blPdf:originalPdfBase64,createdAt:new Date().toISOString()};
+        // Si une autre livraison de la MEME tournee existe deja aujourd'hui, on rejoint le groupe :
+        // meme livreur (deja assigne ou non), meme titre de tournee.
+        var tourneeMate=tourneeInfo.tourneeNum?state.deliveries.find(function(d){return d.tourneeNum===tourneeInfo.tourneeNum;}):null;
+        var entry={id:genId(),client:blNum?'BL n°'+blNum:'BL sans numero',address:'',time:'',ref:'',instructions:'',status:'pending',deliveredAt:null,
+          livreur:tourneeMate?tourneeMate.livreur:'',livreurPhone:tourneeMate?tourneeMate.livreurPhone:'',
+          note:'',blNum:blNum||'',blPdf:originalPdfBase64,
+          tourneeNum:tourneeInfo.tourneeNum||'',tourneeTitle:tourneeMate?tourneeMate.tourneeTitle:(tourneeInfo.tourneeTitle||''),
+          createdAt:new Date().toISOString()};
         persist(state.deliveries.concat([entry]));
         syncDeliveryAttachments(entry.id);
         results.created++;
@@ -1094,8 +1121,13 @@ function persist(list){
 function addDelivery(data){var entry={id:genId(),client:data.client,address:data.address,time:data.time,ref:data.ref||'',instructions:data.instructions||'',status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:'',blPdf:data.blPdf||null,createdAt:new Date().toISOString()};persist(state.deliveries.concat([entry]));if(entry.blPdf)syncDeliveryAttachments(entry.id);state.showAdd=false;state.pdfData=null;render();}
 function assignLivreur(id,livreurId){
   var liv=getLivreurById(livreurId);
+  var target=state.deliveries.find(function(d){return d.id===id;});
+  var tourneeNum=target?target.tourneeNum:'';
   persist(state.deliveries.map(function(d){
-    return d.id===id?Object.assign({},d,{livreur:liv?liv.name:'',livreurPhone:liv?liv.phone:''}):d;
+    if(d.id===id||(tourneeNum&&d.tourneeNum===tourneeNum)){
+      return Object.assign({},d,{livreur:liv?liv.name:'',livreurPhone:liv?liv.phone:''});
+    }
+    return d;
   }));
   state.selectedId=null;
   render();
@@ -1479,7 +1511,25 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
   }var sorted=list.sort(function(a,b){return(a.time||'').localeCompare(b.time||'');});if(!sorted.length){var msg,sub;
   if(onlyPending&&state.role==='livreur'){msg='Aucune livraison assignée';sub='Le responsable vous assignera des livraisons.';}
   else if(onlyPending){msg='Toutes les livraisons ont été pointées !';sub='Bravo, tournée terminée 🎉';}
-  else{msg='Aucune livraison';sub='Utilisez le bouton + pour en ajouter.';}return'<div class="empty-state"><div class="empty-icon">🥐</div><p class="empty-title">'+msg+'</p><p class="empty-sub">'+sub+'</p></div>';}var groups={},order=[];sorted.forEach(function(d){var h=(d.time||'00:00').split(':')[0];if(!groups[h]){groups[h]=[];order.push(h);}groups[h].push(d);});order.sort();return order.map(function(h){return'<div class="hour-block"><div class="hour-head"><span class="hour-num">'+h+'H</span><div class="hour-rule"></div></div>'+groups[h].map(deliveryRow).join('')+'</div>';}).join('');}
+  else{msg='Aucune livraison';sub='Utilisez le bouton + pour en ajouter.';}return'<div class="empty-state"><div class="empty-icon">🥐</div><p class="empty-title">'+msg+'</p><p class="empty-sub">'+sub+'</p></div>';}var groups={},order=[];sorted.forEach(function(d){var h=(d.time||'00:00').split(':')[0];if(!groups[h]){groups[h]=[];order.push(h);}groups[h].push(d);});order.sort();return order.map(function(h){
+  var dayItems=groups[h];
+  var byTournee={},tourneeOrder=[],standalone=[];
+  dayItems.forEach(function(d){
+    if(d.tourneeNum){
+      if(!byTournee[d.tourneeNum]){byTournee[d.tourneeNum]=[];tourneeOrder.push(d.tourneeNum);}
+      byTournee[d.tourneeNum].push(d);
+    } else { standalone.push(d); }
+  });
+  var tourneeHtml=tourneeOrder.map(function(tn){
+    var items=byTournee[tn];
+    var title=items[0].tourneeTitle;
+    return '<div class="tournee-group">'+
+      '<div class="tournee-head">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+' ('+items.length+' BL)'+(items[0].livreur?' · 👤 '+esc(items[0].livreur):'')+'</div>'+
+      items.map(deliveryRow).join('')+
+    '</div>';
+  }).join('');
+  return'<div class="hour-block"><div class="hour-head"><span class="hour-num">'+h+'H</span><div class="hour-rule"></div></div>'+tourneeHtml+standalone.map(deliveryRow).join('')+'</div>';
+}).join('');}
 function renderProductsSection(){
   var prods=state.pdfData&&state.pdfData.products&&state.pdfData.products.length
     ?state.pdfData.products
