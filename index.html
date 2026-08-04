@@ -12,6 +12,7 @@
 <title>Fournil de Jean — Tournées</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script type="module">
 // ── FIREBASE CONFIG ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -553,6 +554,40 @@ function buildTourneeRecapText(tourneeNum,members){
   if(notes.length){lines.push('');lines.push('Constat : '+notes.join(' | '));}
   return lines.join('\n');
 }
+function mergeTourneePdfs(tourneeNum){
+  if(typeof PDFLib==='undefined'){
+    alert('La fusion PDF n\'est pas disponible (bibliothèque non chargée). Vérifiez votre connexion internet et réessayez.');
+    return;
+  }
+  var members=state.deliveries.filter(function(d){return d.tourneeNum===tourneeNum&&d.blPdf;});
+  if(!members.length){alert('Aucun PDF disponible pour cette tournée.');return;}
+  (async function(){
+    try{
+      var mergedPdf=await PDFLib.PDFDocument.create();
+      for(var i=0;i<members.length;i++){
+        var base64=members[i].blPdf.split(',')[1];
+        var binaryStr=atob(base64);
+        var bytes=new Uint8Array(binaryStr.length);
+        for(var j=0;j<binaryStr.length;j++)bytes[j]=binaryStr.charCodeAt(j);
+        var pdf=await PDFLib.PDFDocument.load(bytes);
+        var copiedPages=await mergedPdf.copyPages(pdf,pdf.getPageIndices());
+        copiedPages.forEach(function(page){mergedPdf.addPage(page);});
+      }
+      var mergedBytes=await mergedPdf.save();
+      var blob=new Blob([mergedBytes],{type:'application/pdf'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url;
+      a.download='Tournee-'+tourneeNum+'-groupee.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},5000);
+    }catch(err){
+      alert('Erreur lors de la fusion des PDF : '+err.message+'\n\nVous pouvez toujours ouvrir chaque BL individuellement.');
+    }
+  })();
+}
 function shareTournee(tourneeNum,members){
   var text=buildTourneeRecapText(tourneeNum,members);
   if(navigator.share){
@@ -892,7 +927,7 @@ function parsePdfText(text){
 
   // 8. Produits — quantité sur même ligne OU sur la ligne suivante
   var products=[];
-  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire)/i;
+  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire|t[eé]l|mob|fax|gsm|portable)/i;
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
     // Quantité sur même ligne : "Boule T80 65"
@@ -953,18 +988,19 @@ function extractClientName(text){
 function extractProducts(text){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var products=[];
-  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire)/i;
+  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire|t[eé]l|mob|fax|gsm|portable)/i;
+  var looksLikePhone=/^[\d\s.\-]+$/; // une "designation" qui n'est que des chiffres/espaces = un numero de telephone, pas un produit
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
     // Quantite sur la meme ligne : "Boule T80 65"
     var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
-    if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&m1[1].trim().length>2){
+    if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2){
       products.push({name:m1[1].trim(),qty:parseInt(m1[2])}); continue;
     }
     // Quantite sur la ligne suivante : "Boule T80" puis "65"
     if(i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())){
       var qty=parseInt(lines[i+1].trim());
-      if(qty>0&&l.length>2&&!skipProd.test(l)){
+      if(qty>0&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)){
         products.push({name:l,qty:qty}); i++;
       }
     }
@@ -1515,7 +1551,9 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
     items.forEach(function(d){statusCounts[d.status]=(statusCounts[d.status]||0)+1;});
     var order2=['delivered','pending','absent','refused','incident'];
     var summary=order2.filter(function(s){return statusCounts[s];}).map(function(s){return statusCounts[s]+' '+STATUS_META[s].label.toLowerCase();}).join(' · ');
-    var summaryContent='<div class="tournee-summary-top"><span class="tournee-summary-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</span><span class="tournee-summary-count">'+items.length+' BL</span></div>'+
+    var nbPdfs=items.filter(function(d){return d.blPdf;}).length;
+    var groupedPdfIcon=nbPdfs?'<span class="row-pdf-btn" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'" title="PDF groupé de la tournée">📚</span>':'';
+    var summaryContent='<div class="tournee-summary-top"><span class="tournee-summary-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</span>'+groupedPdfIcon+'<span class="tournee-summary-count">'+items.length+' BL</span></div>'+
       '<div class="tournee-summary-sub">'+(items[0].livreur?'👤 '+esc(items[0].livreur)+' · ':'')+esc(summary)+'</div>';
     if(state.selMode){
       var allSelected=items.every(function(d){return state.selected[d.id];});
@@ -1719,6 +1757,7 @@ function renderTourneeDetailModal(){
   var html='<div class="modal-overlay" data-action="close-tournee"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</h2><button class="modal-close" data-action="close-tournee">←</button></div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
+  if(items.some(function(d){return d.blPdf;}))html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'">📚 Télécharger le PDF groupé de la tournée</button>';
   if(state.role==='responsable'){
     var opts='<option value="">— Choisir un livreur —</option>';
     state.livreurs.forEach(function(l){var sel=livreur===l.name?' selected':'';opts+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
@@ -1949,6 +1988,11 @@ if(action==='download-bl'){
     a.click();
     document.body.removeChild(a);
   }
+  return;
+}
+if(action==='download-tournee-pdf'){
+  var tnPdf=el.getAttribute('data-tournee');
+  mergeTourneePdfs(tnPdf);
   return;
 }
 if(action==='share-order'){var delivShare=state.deliveries.find(function(x){return x.id===id;});if(delivShare)shareOrder(delivShare);return;}
