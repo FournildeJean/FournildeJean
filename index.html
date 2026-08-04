@@ -1573,7 +1573,7 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
       '<div class="tournee-summary-sub">'+(items[0].livreur?'👤 '+esc(items[0].livreur)+' · ':'')+esc(summary)+'</div>';
     if(state.selMode){
       var allSelected=items.every(function(d){return state.selected[d.id];});
-      return '<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+(allSelected?'checked':'')+' data-action="toggle-select-tournee" data-tournee="'+esc(tn)+'"/><button class="tournee-summary-row" data-action="toggle-select-tournee" data-tournee="'+esc(tn)+'">'+summaryContent+'</button></div>';
+      return '<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+(allSelected?'checked':'')+' data-action="toggle-select-tournee" data-tournee="'+esc(tn)+'"/><button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+summaryContent+'</button></div>';
     }
     return '<button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+summaryContent+'</button>';
   }).join('');
@@ -1791,6 +1791,10 @@ function renderTourneeDetailModal(){
     }
   }
   html+='<div class="divider"></div>';
+  if(state.selMode){
+    var allSelIn=items.every(function(d){return state.selected[d.id];});
+    html+='<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--paper-2);border-radius:8px;margin-bottom:8px;font-size:13px;font-weight:700;cursor:pointer;"><input type="checkbox" '+(allSelIn?'checked':'')+' data-action="toggle-select-tournee" data-tournee="'+esc(tn)+'"/> Sélectionner toute la tournée ('+items.length+' BL)</label>';
+  }
   html+='<div class="section-lbl">Détail des BL</div>';
   html+=items.map(deliveryRow).join('');
   html+='</div></div>';
