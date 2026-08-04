@@ -239,7 +239,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .row-body{flex:1;padding:11px 16px 11px 12px;min-width:0;}
 .row-top{display:flex;align-items:baseline;gap:10px;margin-bottom:3px;flex-wrap:wrap;}
 .row-time{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex-shrink:0;}
-.row-client{font-weight:700;font-size:14px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.row-client{font-weight:700;font-size:14px;color:var(--ink);flex:1;white-space:normal;word-break:break-word;}
 .spill{font-size:9px;font-weight:700;padding:2px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;}
 .sp-pending{background:var(--amber-s);color:var(--amber);border:1px solid rgba(200,112,16,.2);}
 .sp-inprogress{background:#E8F2FA;color:#1E6FA8;border:1px solid rgba(30,111,168,.2);}
@@ -773,7 +773,7 @@ function exportExcel(dateFrom, dateTo){
   if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
   saveCamionFields();state.camions=loadCamions(state.date);
   dateFrom=dateFrom||state.date;dateTo=dateTo||state.date;
-  var rows1=[['Date','Tournee','Categorie tournee','N BL','Client','Livreur','Statut','Heure prevue','Heure livree','Produit','Quantite','Constat','Incident']];
+  var rows1=[['Date','Tournee','Categorie tournee','N BL','Client','Livreur','Statut','Heure livree','Produit','Quantite','Constat','Incident']];
   var rows2=[['Date','Livreur','Tel Livreur','N Camion','Heure prise','Heure deposee','Nb livraisons','Signature']];
   var d=new Date(dateFrom+'T00:00:00'), end=new Date(dateTo+'T00:00:00');
   while(d<=end){
@@ -789,7 +789,7 @@ function exportExcel(dateFrom, dateTo){
       var isIncident=['absent','refused','incident'].indexOf(del.status)!==-1?'Oui':'Non';
       var heureLivree=del.deliveredAt?new Date(del.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
       var items=del.ref?parseProductItemsStrict(del.ref):[];
-      var baseRow=[dk,del.tourneeNum||'',del.tourneeTitle||'',del.blNum||'',del.client||'',del.livreur||'',STATUS_META[del.status].label,del.time||'',heureLivree];
+      var baseRow=[dk,del.tourneeNum||'',del.tourneeTitle||'',del.blNum||'',del.client||'',del.livreur||'',STATUS_META[del.status].label,heureLivree];
       if(items.length){
         items.forEach(function(item){
           rows1.push(baseRow.concat([item.name,item.qty,del.note||'',isIncident]));
@@ -810,7 +810,7 @@ function exportExcel(dateFrom, dateTo){
     d.setDate(d.getDate()+1);
   }
   var ws1=XLSX.utils.aoa_to_sheet(rows1),ws2=XLSX.utils.aoa_to_sheet(rows2);
-  ws1['!cols']=autoFitCols(rows1);ws1['!autofilter']={ref:'A1:M'+rows1.length};ws1['!freeze']={ySplit:1};
+  ws1['!cols']=autoFitCols(rows1);ws1['!autofilter']={ref:'A1:L'+rows1.length};ws1['!freeze']={ySplit:1};
   ws2['!cols']=autoFitCols(rows2);ws2['!autofilter']={ref:'A1:H'+rows2.length};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
@@ -1627,7 +1627,7 @@ function renderLivreurApp(){
           '</div>'+
           items.map(function(d){
             return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--rule);">'+
-              '<div style="min-width:0;font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.client)+'</div>'+
+              '<div style="min-width:0;font-size:12px;color:var(--ink-2);word-break:break-word;">'+esc(d.client)+'</div>'+
               '<button class="btn-outline" style="flex:0 0 auto;padding:5px 10px;font-size:11px;" data-action="self-assign" data-id="'+d.id+'">Prendre ce BL</button>'+
             '</div>';
           }).join('')+
@@ -1635,7 +1635,7 @@ function renderLivreurApp(){
       }).join('')+
       soloItems.map(function(d){
         return '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">'+
-          '<div style="min-width:0;"><div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.client)+'</div>'+(d.blNum?'<div style="font-size:11px;color:var(--ink-3);">N° '+esc(d.blNum)+'</div>':'')+'</div>'+
+          '<div style="min-width:0;"><div style="font-weight:700;font-size:13px;word-break:break-word;">'+esc(d.client)+'</div>'+(d.blNum?'<div style="font-size:11px;color:var(--ink-3);">N° '+esc(d.blNum)+'</div>':'')+'</div>'+
           '<button class="btn-outline" style="flex:0 0 auto;padding:8px 14px;font-size:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="self-assign" data-id="'+d.id+'">Prendre</button>'+
         '</div>';
       }).join('')+
