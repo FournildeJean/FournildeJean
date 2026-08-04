@@ -1404,6 +1404,7 @@ function buildDashboardFlatRows(dateFrom, dateTo){
     var dk=toLocalISODate(d);
     var list=[];
     try{var raw=localStorage.getItem('fdj-tournee:'+dk);if(raw)list=JSON.parse(raw)||[];}catch(e){}
+    list=list.filter(function(del){return del.status!=='pending';}); // seuls les BL finalises (Livre/Absent/Incident/Refuse)
     list.forEach(function(del){
       var statusLabel=(STATUS_META[del.status]||{}).label||del.status;
       var isIncident=['absent','refused','incident'].indexOf(del.status)!==-1?'Oui':'Non';
@@ -1531,20 +1532,14 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
   var tourneeHtml=tourneeOrder.map(function(tn){
     var items=byTournee[tn];
     var title=items[0].tourneeTitle;
-    if(state.role==='responsable'){
-      var statusCounts={};
-      items.forEach(function(d){statusCounts[d.status]=(statusCounts[d.status]||0)+1;});
-      var order2=['delivered','pending','absent','refused','incident'];
-      var summary=order2.filter(function(s){return statusCounts[s];}).map(function(s){return statusCounts[s]+' '+STATUS_META[s].label.toLowerCase();}).join(' · ');
-      return '<button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+
-        '<div class="tournee-summary-top"><span class="tournee-summary-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</span><span class="tournee-summary-count">'+items.length+' BL</span></div>'+
-        '<div class="tournee-summary-sub">'+(items[0].livreur?'👤 '+esc(items[0].livreur)+' · ':'')+esc(summary)+'</div>'+
-      '</button>';
-    }
-    return '<div class="tournee-group">'+
-      '<div class="tournee-head">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+' ('+items.length+' BL)'+(items[0].livreur?' · 👤 '+esc(items[0].livreur):'')+'</div>'+
-      items.map(deliveryRow).join('')+
-    '</div>';
+    var statusCounts={};
+    items.forEach(function(d){statusCounts[d.status]=(statusCounts[d.status]||0)+1;});
+    var order2=['delivered','pending','absent','refused','incident'];
+    var summary=order2.filter(function(s){return statusCounts[s];}).map(function(s){return statusCounts[s]+' '+STATUS_META[s].label.toLowerCase();}).join(' · ');
+    return '<button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+
+      '<div class="tournee-summary-top"><span class="tournee-summary-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</span><span class="tournee-summary-count">'+items.length+' BL</span></div>'+
+      '<div class="tournee-summary-sub">'+(items[0].livreur?'👤 '+esc(items[0].livreur)+' · ':'')+esc(summary)+'</div>'+
+    '</button>';
   }).join('');
   return'<div class="hour-block"><div class="hour-head"><span class="hour-num">'+h+'H</span><div class="hour-rule"></div></div>'+tourneeHtml+standalone.map(deliveryRow).join('')+'</div>';
 }).join('');}
@@ -1665,7 +1660,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+=renderTimeline(true)+'</div>';
-  html+=renderDetailModal();
+  html+=renderDetailModal()+renderTourneeDetailModal();
   return html;
 }
 
@@ -1739,18 +1734,22 @@ function renderTourneeDetailModal(){
   var title=items[0].tourneeTitle;
   var livreur=items[0].livreur;
   var allDelivered=items.every(function(d){return d.status==='delivered';});
-  var opts='<option value="">— Choisir un livreur —</option>';
-  state.livreurs.forEach(function(l){var sel=livreur===l.name?' selected':'';opts+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
   var html='<div class="modal-overlay" data-action="close-tournee"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</h2><button class="modal-close" data-action="close-tournee">←</button></div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
-  html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
-  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
-  if(allDelivered){
-    html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
+  if(state.role==='responsable'){
+    var opts='<option value="">— Choisir un livreur —</option>';
+    state.livreurs.forEach(function(l){var sel=livreur===l.name?' selected':'';opts+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
+    html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
+    html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;">Ouvrez un BL ci-dessous pour le valider ou le modifier individuellement.</div>';
   } else {
-    html+='<button class="btn-primary" style="width:100%;margin-bottom:16px;background:var(--green);" data-action="mark-tournee-delivered" data-tournee="'+esc(tn)+'">✅ Marquer toute la tournée livrée</button>';
-    html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
+    if(allDelivered){
+      html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
+    } else {
+      html+='<button class="btn-primary" style="width:100%;margin-bottom:16px;background:var(--green);" data-action="mark-tournee-delivered" data-tournee="'+esc(tn)+'">✅ Valider toute la tournée livrée</button>';
+      html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
+    }
   }
   html+='<div class="divider"></div>';
   html+='<div class="section-lbl">Détail des BL</div>';
