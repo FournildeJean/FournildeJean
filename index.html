@@ -1777,6 +1777,20 @@ function renderLivreurApp(){
     '</div>';
   });
   html+='<button style="width:100%;padding:10px;margin-top:6px;border-radius:8px;border:1.5px dashed var(--teal);background:none;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;" data-action="add-camion">+ Ajouter un camion</button>';
+  var mesTourneesNums=[];
+  state.deliveries.forEach(function(d){if(d.tourneeNum&&d.livreur===state.livreurName&&mesTourneesNums.indexOf(d.tourneeNum)===-1)mesTourneesNums.push(d.tourneeNum);});
+  html+='<div class="camion-card" style="margin-top:12px;">'+
+    '<div class="camion-title">🧺 Caisses</div>';
+  if(mesTourneesNums.length>1){
+    html+='<div class="field"><div class="field-label">Tournée concernée</div><select id="lv-caisse-tournee-select">'+mesTourneesNums.map(function(t){return'<option value="'+esc(t)+'">Tournée '+esc(t)+'</option>';}).join('')+'</select></div>'+
+      '<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner-livreur-charge">🧺 Scanner les caisses chargées</button>';
+  } else if(mesTourneesNums.length===1){
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner" data-mode="charge" data-tournee="'+esc(mesTourneesNums[0])+'">🧺 Scanner les caisses chargées</button>';
+  } else {
+    html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Aucune tournée assignée pour le moment.</div>';
+  }
+  html+='<button class="btn-outline" style="width:100%;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>'+
+  '</div>';
   var unassigned=state.deliveries.filter(function(d){return d.status==='pending'&&!d.livreur;});
   if(unassigned.length){
     var byTn={},tnOrder=[],soloItems=[];
@@ -1968,8 +1982,6 @@ function renderTourneeDetailModal(){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
     html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;">Ouvrez un BL ci-dessous pour le valider ou le modifier individuellement.</div>';
   } else {
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner" data-mode="charge" data-tournee="'+esc(tn)+'">🧺 Scanner les caisses chargées</button>';
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>';
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
     } else {
@@ -2189,6 +2201,13 @@ if(action==='retour-caisse-direct'){
 if(action==='open-scanner'){
   state.showScanner=true;
   state.scanTarget={mode:el.getAttribute('data-mode'),tourneeNum:el.getAttribute('data-tournee')||null};
+  render();
+  return;
+}
+if(action==='open-scanner-livreur-charge'){
+  var tnPick=document.getElementById('lv-caisse-tournee-select');
+  state.showScanner=true;
+  state.scanTarget={mode:'charge',tourneeNum:tnPick?tnPick.value:null};
   render();
   return;
 }
