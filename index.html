@@ -60,6 +60,9 @@ function fbListenCollection(collection_name, callback) {
     const data = {};
     snap.forEach(d => { data[d.id] = d.data(); });
     callback(data);
+  }, (error) => {
+    console.error('Firestore listen error on', collection_name, ':', error);
+    if (typeof window.onFbListenError === 'function') window.onFbListenError(collection_name, error);
   });
 }
 
@@ -1415,7 +1418,10 @@ function assignLivreur(id,livreurId,wholeTournee){
 }
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
 function captureGeoLocationAsync(deliveryIds){
-  if(!navigator.geolocation)return;
+  if(!navigator.geolocation){
+    state._geoStatus='unsupported';
+    return;
+  }
   var ids=Array.isArray(deliveryIds)?deliveryIds:[deliveryIds];
   navigator.geolocation.getCurrentPosition(function(pos){
     var lat=pos.coords.latitude,lng=pos.coords.longitude;
@@ -1423,10 +1429,14 @@ function captureGeoLocationAsync(deliveryIds){
       if(ids.indexOf(d.id)===-1)return d;
       return Object.assign({},d,{geoLat:lat,geoLng:lng});
     });
+    state._geoStatus='ok';
     persist(state.deliveries);
-    if(state.selectedTourneeNum||state.selectedId)render();
+    render();
   },function(err){
-    // Echec silencieux : la position est une donnee complementaire, jamais bloquante pour la validation
+    // La position est une donnee complementaire, jamais bloquante pour la validation,
+    // mais on garde une trace de l'echec pour pouvoir l'expliquer dans l'interface.
+    state._geoStatus=err&&err.code===1?'denied':'failed';
+    render();
   },{enableHighAccuracy:true,timeout:8000,maximumAge:30000});
 }
 function getDeliveryPhotos(d){
@@ -1949,6 +1959,9 @@ function renderCaissesModal(){
   var nbSel=Object.keys(state.selectedCaisses||{}).filter(function(k){return state.selectedCaisses[k];}).length;
   var html='<div class="modal-overlay" data-action="close-caisses"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🧺 Caisses</h2><button class="modal-close" data-action="close-caisses">←</button></div>';
+  if(state._caissesSyncError){
+    html+='<div style="background:var(--red-s);border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--red);"><b>⚠️ Synchronisation en panne :</b> les caisses créées ou scannées par d\'autres appareils ne remontent pas ici pour le moment. '+esc(state._caissesSyncError)+'</div>';
+  }
   html+='<div style="display:flex;gap:8px;margin-bottom:16px;">'+
     '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;">'+state.caisses.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Total</div></div>'+
     '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--green);">'+enStock.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
@@ -2031,24 +2044,17 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
   }).join('')+'</div></div>';
   if(!isPointed){
     if(state.role==='responsable'){
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:'+(state.showModifier?'12':'0')+'px;" data-action="toggle-modifier">'+(state.showModifier?'▲ Fermer':'✏️ Modifier')+'</button>';
-      if(state.showModifier){
-        // Réassigner + statut, regroupés sous "Modifier"
-        var opts2='<option value="">— Choisir un livreur —</option>';
-        state.livreurs.forEach(function(l){var sel=d.livreur===l.name?' selected':'';opts2+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
-        html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="f-livreur-select">'+opts2+'</select></div>';
-        var curLiv=state.livreurs.find(function(l){return l.name===d.livreur;});
-        if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
-        if(d.tourneeNum){
-          var tourneeCount=state.deliveries.filter(function(x){return x.tourneeNum===d.tourneeNum;}).length;
-          html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur-tournee" data-id="'+d.id+'">👤 Assigner toute la tournée '+esc(d.tourneeNum)+' ('+tourneeCount+' BL)</button>';
-          html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur-single" data-id="'+d.id+'">👤 Assigner ce BL uniquement</button>';
-        } else {
-          html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
-        }
-        html+='<div class="outcome-grid">';
-        OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
-        html+='</div>';
+      var opts2='<option value="">— Choisir un livreur —</option>';
+      state.livreurs.forEach(function(l){var sel=d.livreur===l.name?' selected':'';opts2+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
+      html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="f-livreur-select">'+opts2+'</select></div>';
+      var curLiv=state.livreurs.find(function(l){return l.name===d.livreur;});
+      if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
+      if(d.tourneeNum){
+        var tourneeCount=state.deliveries.filter(function(x){return x.tourneeNum===d.tourneeNum;}).length;
+        html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur-tournee" data-id="'+d.id+'">👤 Assigner toute la tournée '+esc(d.tourneeNum)+' ('+tourneeCount+' BL)</button>';
+        html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur-single" data-id="'+d.id+'">👤 Assigner ce BL uniquement</button>';
+      } else {
+        html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
       }
     } else {
       // LIVREUR : son nom auto, pas de dropdown
@@ -2058,15 +2064,15 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       OUTCOMES.forEach(function(o){var active=state.pendingOutcome===o.key;html+='<button class="outcome-btn '+o.cls+(active?' active':'')+'" data-action="set-outcome" data-key="'+o.key+'">'+o.label+'</button>';});
       html+='</div>';
     }
-    // Constats + prise de photo : pour livreur toujours visible, pour responsable sous "Modifier"
-    if(state.role==='livreur'||state.showModifier){
+    // Constats + prise de photo : reserves au livreur, qui est seul a valider un pointage
+    if(state.role==='livreur'){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
       html+='<button id="btn-camera" class="btn-camera" style="margin-top:4px;" data-action="take-photo">📷 '+(livePhotos.length?'Ajouter une autre photo':'Prendre une photo constat')+'</button>';
       if(livePhotos.length)html+='<div style="margin-top:10px;padding:8px 12px;background:#FEF4E6;border:1px solid #F0D9B5;border-radius:8px;font-size:12px;color:#8A5A10;">⚠️ Photo(s) enregistree(s), mais le pointage n\'est pas encore valide. Cliquez sur "Valider le pointage" pour confirmer le statut.</div>';
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">← Retour</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderTrajetModal(){
   if(!state.showTrajet)return'';
@@ -2105,6 +2111,12 @@ function renderTourneeDetailModal(){
   var itemsAvecGeo=items.filter(function(d){return d.geoLat&&d.geoLng&&d.deliveredAt;});
   if(itemsAvecGeo.length>=2){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-trajet" data-tournee="'+esc(tn)+'">🗺️ Voir le trajet réel ('+itemsAvecGeo.length+' points)</button>';
+  } else {
+    var geoMsg='Le trajet réel s\'affichera ici dès que 2 livraisons de cette tournée auront été validées avec la position activée.';
+    if(state._geoStatus==='denied')geoMsg='📍 La localisation est refusée sur cet appareil — le trajet ne peut pas être enregistré. Vérifiez l\'autorisation de localisation dans les réglages du navigateur.';
+    else if(state._geoStatus==='failed')geoMsg='📍 La position n\'a pas pu être récupérée sur cet appareil (signal GPS, réseau...). Le trajet ne s\'enregistre pas pour l\'instant.';
+    else if(state._geoStatus==='unsupported')geoMsg='📍 La localisation n\'est pas disponible sur ce navigateur.';
+    html+='<div style="background:var(--paper-2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--ink-2);">🗺️ '+geoMsg+'</div>';
   }
   if(items.some(function(d){return d.blPdf;}))html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'">📚 Télécharger le PDF groupé de la tournée</button>';
   if(state.role==='responsable'){
@@ -2583,6 +2595,12 @@ window.onFbSaveError=function(collection_name, err){
   }
   if(collection_name==='fdj-caisses'){
     alert('⚠️ La synchronisation de cette caisse a échoué (elle reste visible sur cet appareil, mais ne sera pas partagée avec les autres tant que le problème n\'est pas résolu). Détail technique : '+msg);
+  }
+};
+window.onFbListenError=function(collection_name, err){
+  if(collection_name==='fdj-caisses'){
+    state._caissesSyncError=(err&&err.message)||'Erreur de synchronisation inconnue';
+    render();
   }
 };
 
