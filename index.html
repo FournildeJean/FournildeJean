@@ -486,17 +486,25 @@ function createCaisses(taille,quantite){
   var created=[];
   for(var i=1;i<=quantite;i++){
     var num=maxNum+i;
-    created.push({id:genId(),numero:num,taille:taille,statut:'stock',client:'',dateCreation:new Date().toISOString(),historique:[]});
+    created.push({id:genId(),numero:num,taille:taille,statut:'stock',client:'',tourneeNum:'',dateCreation:new Date().toISOString(),historique:[]});
   }
   state.caisses=state.caisses.concat(created);
   saveCaisses(state.caisses);
   return created;
 }
+function marquerCaisseChargee(caisseId,tourneeNum){
+  state.caisses=state.caisses.map(function(c){
+    if(c.id!==caisseId)return c;
+    var hist=(c.historique||[]).concat([{date:new Date().toISOString(),action:'charge',tourneeNum:tourneeNum,deliveryId:null}]);
+    return Object.assign({},c,{statut:'charge',tourneeNum:tourneeNum,client:'',historique:hist});
+  });
+  saveCaisses(state.caisses);
+}
 function marquerCaisseDepart(caisseId,client,deliveryId){
   state.caisses=state.caisses.map(function(c){
     if(c.id!==caisseId)return c;
     var hist=(c.historique||[]).concat([{date:new Date().toISOString(),action:'depart',client:client,deliveryId:deliveryId||null}]);
-    return Object.assign({},c,{statut:'chez_client',client:client,historique:hist});
+    return Object.assign({},c,{statut:'chez_client',client:client,tourneeNum:'',historique:hist});
   });
   saveCaisses(state.caisses);
 }
@@ -504,7 +512,7 @@ function marquerCaisseRetour(caisseId){
   state.caisses=state.caisses.map(function(c){
     if(c.id!==caisseId)return c;
     var hist=(c.historique||[]).concat([{date:new Date().toISOString(),action:'retour',client:c.client,deliveryId:null}]);
-    return Object.assign({},c,{statut:'stock',client:'',historique:hist});
+    return Object.assign({},c,{statut:'stock',client:'',tourneeNum:'',historique:hist});
   });
   saveCaisses(state.caisses);
 }
@@ -778,7 +786,10 @@ function handleQrScanResult(text){
     return;
   }
   var target=state.scanTarget;
-  if(target&&target.mode==='depart'){
+  if(target&&target.mode==='charge'){
+    marquerCaisseChargee(caisse.id,target.tourneeNum);
+    alert('Caisse n°'+caisse.numero+' chargée pour la tournée '+target.tourneeNum+'.');
+  } else if(target&&target.mode==='depart'){
     var d=state.deliveries.find(function(x){return x.id===target.deliveryId;});
     if(d){
       marquerCaisseDepart(caisse.id,d.client,d.id);
@@ -1821,17 +1832,21 @@ function renderAddModal(){if(!state.showAdd)return'';
 function renderCaissesModal(){
   if(!state.showCaisses)return'';
   var enStock=state.caisses.filter(function(c){return c.statut==='stock';});
+  var chargees=state.caisses.filter(function(c){return c.statut==='charge';});
   var chezClient=state.caisses.filter(function(c){return c.statut==='chez_client';});
   var parClient={};
   chezClient.forEach(function(c){if(!parClient[c.client])parClient[c.client]=[];parClient[c.client].push(c);});
+  var parTournee={};
+  chargees.forEach(function(c){if(!parTournee[c.tourneeNum])parTournee[c.tourneeNum]=[];parTournee[c.tourneeNum].push(c);});
   var html='<div class="modal-overlay" data-action="close-caisses"><div class="modal-sheet" data-action="noop">';
-  html+='<div class="modal-head"><h2 class="modal-title">📦 Caisses</h2><button class="modal-close" data-action="close-caisses">←</button></div>';
-  html+='<div style="display:flex;gap:8px;margin-bottom:16px;">'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;">'+state.caisses.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Total</div></div>'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--green);">'+enStock.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--amber);">'+chezClient.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Chez clients</div></div>'+
+  html+='<div class="modal-head"><h2 class="modal-title">🧺 Caisses</h2><button class="modal-close" data-action="close-caisses">←</button></div>';
+  html+='<div style="display:flex;gap:6px;margin-bottom:16px;">'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:8px;text-align:center;"><div style="font-family:var(--display);font-size:20px;">'+state.caisses.length+'</div><div style="font-size:8px;text-transform:uppercase;color:var(--ink-3);">Total</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:8px;text-align:center;"><div style="font-family:var(--display);font-size:20px;color:var(--green);">'+enStock.length+'</div><div style="font-size:8px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:8px;text-align:center;"><div style="font-family:var(--display);font-size:20px;color:var(--teal);">'+chargees.length+'</div><div style="font-size:8px;text-transform:uppercase;color:var(--ink-3);">Chargées</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:8px;text-align:center;"><div style="font-family:var(--display);font-size:20px;color:var(--amber);">'+chezClient.length+'</div><div style="font-size:8px;text-transform:uppercase;color:var(--ink-3);">Chez clients</div></div>'+
   '</div>';
-  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-scanner" data-mode="retour">📷 Scanner un retour de caisse</button>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>';
   html+='<div class="divider"></div>';
   html+='<div class="section-lbl">Créer des caisses</div>';
   html+='<div class="add-row"><input id="cs-taille" placeholder="Taille (ex: Petite)" type="text"/><input id="cs-qte" placeholder="Quantité" type="number" min="1" value="1" style="max-width:80px;"/><button class="btn-add-lv" data-action="submit-create-caisses">+</button></div>';
@@ -1845,6 +1860,16 @@ function renderCaissesModal(){
           '<span>Caisse n°'+c.numero+' — '+esc(c.taille)+'</span>'+
           '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="retour-caisse-direct" data-id="'+c.id+'">Retour manuel</button>'+
         '</div>';
+      });
+    });
+    html+='<div class="divider"></div>';
+  }
+  if(chargees.length){
+    html+='<div class="section-lbl">Chargées, en tournée</div>';
+    Object.keys(parTournee).forEach(function(tnKey){
+      html+='<div style="font-size:12px;font-weight:700;color:var(--ink);margin:8px 0 4px;">🚛 Tournée '+esc(tnKey)+' ('+parTournee[tnKey].length+' caisse'+(parTournee[tnKey].length>1?'s':'')+')</div>';
+      parTournee[tnKey].forEach(function(c){
+        html+='<div style="padding:4px 0;font-size:12px;color:var(--ink-2);">Caisse n°'+c.numero+' — '+esc(c.taille)+'</div>';
       });
     });
     html+='<div class="divider"></div>';
@@ -1876,12 +1901,31 @@ function renderQrCardModal(){
 }
 function renderScannerModal(){
   if(!state.showScanner)return'';
+  var mode=state.scanTarget?state.scanTarget.mode:'';
+  var candidats=state.caisses.filter(function(c){
+    if(mode==='charge')return c.statut==='stock';
+    if(mode==='depart')return c.statut==='stock'||c.statut==='charge';
+    if(mode==='retour')return c.statut==='chez_client';
+    return false;
+  });
+  var opts='<option value="">— Choisir une caisse —</option>';
+  candidats.forEach(function(c){
+    var label='Caisse n°'+c.numero+' — '+c.taille+(c.statut==='chez_client'?' (chez '+c.client+')':'');
+    opts+='<option value="'+c.id+'">'+esc(label)+'</option>';
+  });
   return '<div class="modal-overlay" data-action="close-scanner" style="background:rgba(0,0,0,.9);">'+
     '<div style="width:100%;max-width:420px;text-align:center;padding:16px;">'+
       '<div style="color:#fff;font-size:14px;font-weight:700;margin-bottom:10px;">📷 Visez le QR code de la caisse</div>'+
       '<video id="qr-video" style="width:100%;border-radius:12px;background:#000;" playsinline muted></video>'+
       '<canvas id="qr-canvas" style="display:none;"></canvas>'+
       '<div id="qr-scan-status" style="color:#fff;font-size:12px;margin-top:10px;">Recherche d\'un QR code...</div>'+
+      '<div style="background:#fff;border-radius:12px;padding:14px;margin-top:16px;">'+
+        '<div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px;">La caméra ne scanne pas ? Choisissez directement :</div>'+
+        (candidats.length?
+          '<select id="qr-manual-select" style="width:100%;padding:10px;border-radius:8px;border:1.5px solid var(--rule);font-size:14px;margin-bottom:10px;">'+opts+'</select>'+
+          '<button class="btn-primary" style="width:100%;background:var(--teal);" data-action="submit-manual-scan">✅ Valider cette caisse</button>'
+        :'<div style="font-size:12px;color:var(--ink-3);">Aucune caisse disponible pour cette action.</div>')+
+      '</div>'+
       '<button class="btn-outline" style="width:100%;margin-top:14px;background:#fff;" data-action="close-scanner">Annuler</button>'+
     '</div>'+
   '</div>';
@@ -1930,7 +1974,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">← Retour</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner" data-mode="depart" data-id="'+d.id+'">📦 Scanner une caisse envoyée</button>';html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div style="display:flex;gap:8px;margin-bottom:8px;"><button class="btn-outline" style="flex:1;" data-action="open-scanner" data-mode="depart" data-id="'+d.id+'">🧺 Caisse envoyée</button><button class="btn-outline" style="flex:1;" data-action="open-scanner" data-mode="retour">🧺 Caisse retournée</button></div>';html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderTourneeDetailModal(){
   if(!state.selectedTourneeNum)return'';
@@ -1951,6 +1995,8 @@ function renderTourneeDetailModal(){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
     html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;">Ouvrez un BL ci-dessous pour le valider ou le modifier individuellement.</div>';
   } else {
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner" data-mode="charge" data-tournee="'+esc(tn)+'">🧺 Scanner les caisses chargées</button>';
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>';
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
     } else {
@@ -1984,7 +2030,7 @@ function renderResponsableApp(){
     '<button class="resp-action" data-action="toggle-sel-mode"><span class="resp-action-icon">☑️</span><span class="resp-action-lbl">Sélect.</span></button>'+
     '<button class="resp-action" data-action="refresh"><span class="resp-action-icon">🔄</span><span class="resp-action-lbl">Actu.</span></button>'+
     '<button class="resp-action" data-action="open-livreurs"><span class="resp-action-icon">👥</span><span class="resp-action-lbl">Livreurs</span></button>'+
-    '<button class="resp-action" data-action="open-caisses"><span class="resp-action-icon">📦</span><span class="resp-action-lbl">Caisses</span></button>'+
+    '<button class="resp-action" data-action="open-caisses"><span class="resp-action-icon">🧺</span><span class="resp-action-lbl">Caisses</span></button>'+
     '<button class="resp-action" data-action="open-rapport"><span class="resp-action-icon">📄</span><span class="resp-action-lbl">Rapport</span></button>'+
     '<button class="resp-action" data-action="open-dashboard"><span class="resp-action-icon">📊</span><span class="resp-action-lbl">Analyse</span></button>'+
     '<button class="resp-action resp-action-quit" data-action="logout"><span class="resp-action-icon">🚪</span><span class="resp-action-lbl">Quitter</span></button>'+
@@ -2007,7 +2053,7 @@ function renderResponsableApp(){
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderScannerModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderScannerModal()+renderRapportModal()+renderDashboardModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -2169,11 +2215,18 @@ if(action==='retour-caisse-direct'){
 }
 if(action==='open-scanner'){
   state.showScanner=true;
-  state.scanTarget={mode:el.getAttribute('data-mode'),deliveryId:el.getAttribute('data-id')||null};
+  state.scanTarget={mode:el.getAttribute('data-mode'),deliveryId:el.getAttribute('data-id')||null,tourneeNum:el.getAttribute('data-tournee')||null};
   render();
   return;
 }
 if(action==='close-scanner'){stopQrScanner();state.showScanner=false;state.scanTarget=null;render();return;}
+if(action==='submit-manual-scan'){
+  var selEl=document.getElementById('qr-manual-select');
+  var caisseIdSel=selEl?selEl.value:'';
+  if(!caisseIdSel){alert('Choisissez une caisse dans la liste.');return;}
+  handleQrScanResult('CAISSE:'+caisseIdSel);
+  return;
+}
 if(action==='download-qr-code'){
   var canvasQr=document.querySelector('#qr-render-target canvas');
   var imgQr=document.querySelector('#qr-render-target img');
