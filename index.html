@@ -14,7 +14,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
 <script type="module">
 // ── FIREBASE CONFIG ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -560,10 +559,12 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showScanner:false,scanTarget:null,showQrCard:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,pendingCaisseId:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
+var _caisseParam=new URLSearchParams(location.search).get('caisse');
+if(_caisseParam)state.pendingCaisseId=_caisseParam;
 
 function toLocalISODate(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
 function formatDateLabel(s){var p=s.split('-').map(Number),dt=new Date(p[0],p[1]-1,p[2]);var l=dt.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});return l.charAt(0).toUpperCase()+l.slice(1);}
@@ -720,89 +721,14 @@ var sigCtx=null;
 var sigCanvas=null;
 
 // ── QR CODES (CAISSES) ──
-var qrStream=null, qrRafId=null;
 function initQrFeatures(){
   var qrTarget=document.getElementById('qr-render-target');
   if(qrTarget && state.showQrCard && typeof QRCode!=='undefined'){
     qrTarget.innerHTML='';
-    new QRCode(qrTarget,{text:'CAISSE:'+state.showQrCard,width:200,height:200});
-  }
-  var video=document.getElementById('qr-video');
-  if(video && state.showScanner && !qrStream){
-    startQrScanner(video);
-  }
-  if((!video||!state.showScanner) && qrStream){
-    stopQrScanner();
+    var qrUrl=window.location.origin+window.location.pathname+'?caisse='+state.showQrCard;
+    new QRCode(qrTarget,{text:qrUrl,width:220,height:220});
   }
 }
-function startQrScanner(video){
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    var st=document.getElementById('qr-scan-status');
-    if(st)st.textContent='Caméra non disponible sur cet appareil/navigateur.';
-    return;
-  }
-  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}).then(function(stream){
-    qrStream=stream;
-    video.srcObject=stream;
-    video.setAttribute('playsinline',true);
-    video.play();
-    var canvas=document.getElementById('qr-canvas');
-    var ctx=canvas.getContext('2d');
-    function tick(){
-      if(!qrStream)return;
-      if(video.readyState===video.HAVE_ENOUGH_DATA){
-        canvas.height=video.videoHeight;
-        canvas.width=video.videoWidth;
-        ctx.drawImage(video,0,0,canvas.width,canvas.height);
-        var imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
-        var code=(typeof jsQR!=='undefined')?jsQR(imageData.data,imageData.width,imageData.height):null;
-        if(code&&code.data){
-          handleQrScanResult(code.data);
-          return;
-        }
-      }
-      qrRafId=requestAnimationFrame(tick);
-    }
-    qrRafId=requestAnimationFrame(tick);
-  }).catch(function(err){
-    var st=document.getElementById('qr-scan-status');
-    if(st)st.textContent='Impossible d\'accéder à la caméra : '+err.message;
-  });
-}
-function stopQrScanner(){
-  if(qrRafId){cancelAnimationFrame(qrRafId);qrRafId=null;}
-  if(qrStream){qrStream.getTracks().forEach(function(t){t.stop();});qrStream=null;}
-}
-function handleQrScanResult(text){
-  stopQrScanner();
-  var m=text.match(/^CAISSE:(.+)$/);
-  var caisseId=m?m[1]:null;
-  var caisse=caisseId?state.caisses.find(function(c){return c.id===caisseId;}):null;
-  state.showScanner=false;
-  if(!caisse){
-    alert('QR code non reconnu (ce n\'est pas une caisse enregistrée dans l\'application).');
-    state.scanTarget=null;
-    render();
-    return;
-  }
-  var target=state.scanTarget;
-  if(target&&target.mode==='charge'){
-    marquerCaisseChargee(caisse.id,target.tourneeNum);
-    alert('Caisse n°'+caisse.numero+' chargée pour la tournée '+target.tourneeNum+'.');
-  } else if(target&&target.mode==='depart'){
-    var d=state.deliveries.find(function(x){return x.id===target.deliveryId;});
-    if(d){
-      marquerCaisseDepart(caisse.id,d.client,d.id);
-      alert('Caisse n°'+caisse.numero+' associée à '+d.client+'.');
-    }
-  } else if(target&&target.mode==='retour'){
-    marquerCaisseRetour(caisse.id);
-    alert('Caisse n°'+caisse.numero+' de retour en stock.');
-  }
-  state.scanTarget=null;
-  render();
-}
-window.handleQrScanResult=handleQrScanResult;
 function initSignatureCanvas(canvas){
   if(!canvas||canvas._sigInit) return;
   canvas._sigInit=true;
@@ -1809,7 +1735,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+=renderTimeline(true)+'</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderScannerModal()+renderQrCardModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderCaisseScanActionModal();
   return html;
 }
 
@@ -1846,7 +1772,7 @@ function renderCaissesModal(){
     '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:8px;text-align:center;"><div style="font-family:var(--display);font-size:20px;color:var(--teal);">'+chargees.length+'</div><div style="font-size:8px;text-transform:uppercase;color:var(--ink-3);">Chargées</div></div>'+
     '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:8px;text-align:center;"><div style="font-family:var(--display);font-size:20px;color:var(--amber);">'+chezClient.length+'</div><div style="font-size:8px;text-transform:uppercase;color:var(--ink-3);">Chez clients</div></div>'+
   '</div>';
-  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>';
+  html+='<div style="background:var(--teal-l);border-radius:10px;padding:12px;margin-bottom:16px;text-align:left;"><div style="font-size:12px;font-weight:700;color:var(--teal-d);margin-bottom:4px;">📷 Pour charger, livrer ou récupérer une caisse</div><div style="font-size:12px;color:var(--ink-2);line-height:1.5;">Visez son QR code avec l\'appareil photo de votre téléphone. L\'application s\'ouvre automatiquement avec les actions possibles pour cette caisse.</div></div>';
   html+='<div class="divider"></div>';
   html+='<div class="section-lbl">Créer des caisses</div>';
   html+='<div class="add-row"><input id="cs-taille" placeholder="Taille (ex: Petite)" type="text"/><input id="cs-qte" placeholder="Quantité" type="number" min="1" value="1" style="max-width:80px;"/><button class="btn-add-lv" data-action="submit-create-caisses">+</button></div>';
@@ -1899,36 +1825,49 @@ function renderQrCardModal(){
     '<button class="btn-outline" style="width:100%;" data-action="download-qr-code" data-id="'+c.id+'">💾 Télécharger l\'image</button>'+
   '</div></div>';
 }
-function renderScannerModal(){
-  if(!state.showScanner)return'';
-  var mode=state.scanTarget?state.scanTarget.mode:'';
-  var candidats=state.caisses.filter(function(c){
-    if(mode==='charge')return c.statut==='stock';
-    if(mode==='depart')return c.statut==='stock'||c.statut==='charge';
-    if(mode==='retour')return c.statut==='chez_client';
-    return false;
+function renderCaisseScanActionModal(){
+  if(!state.pendingCaisseId||state.screen!=='app')return'';
+  var c=state.caisses.find(function(x){return x.id===state.pendingCaisseId;});
+  if(!c){
+    return '<div class="modal-overlay" data-action="dismiss-caisse-scan"><div class="modal-sheet" data-action="noop" style="text-align:center;">'+
+      '<div style="font-size:32px;margin-bottom:8px;">⚠️</div>'+
+      '<div style="font-size:14px;color:var(--ink-2);margin-bottom:16px;">Cette caisse n\'est pas reconnue dans l\'application.</div>'+
+      '<button class="btn-outline" style="width:100%;" data-action="dismiss-caisse-scan">Fermer</button>'+
+    '</div></div>';
+  }
+  var statutLabel={stock:'En stock',charge:'Chargée, en tournée '+c.tourneeNum,chez_client:'Chez '+c.client}[c.statut]||c.statut;
+  var tournees=[];
+  state.deliveries.forEach(function(d){
+    if(!d.tourneeNum)return;
+    if(state.role==='livreur'&&d.livreur!==state.livreurName)return;
+    if(tournees.indexOf(d.tourneeNum)===-1)tournees.push(d.tourneeNum);
   });
-  var opts='<option value="">— Choisir une caisse —</option>';
-  candidats.forEach(function(c){
-    var label='Caisse n°'+c.numero+' — '+c.taille+(c.statut==='chez_client'?' (chez '+c.client+')':'');
-    opts+='<option value="'+c.id+'">'+esc(label)+'</option>';
+  var clientsDispo=state.deliveries.filter(function(d){
+    if(state.role==='livreur')return d.livreur===state.livreurName;
+    return true;
   });
-  return '<div class="modal-overlay" data-action="close-scanner" style="background:rgba(0,0,0,.9);">'+
-    '<div style="width:100%;max-width:420px;text-align:center;padding:16px;">'+
-      '<div style="color:#fff;font-size:14px;font-weight:700;margin-bottom:10px;">📷 Visez le QR code de la caisse</div>'+
-      '<video id="qr-video" style="width:100%;border-radius:12px;background:#000;" playsinline muted></video>'+
-      '<canvas id="qr-canvas" style="display:none;"></canvas>'+
-      '<div id="qr-scan-status" style="color:#fff;font-size:12px;margin-top:10px;">Recherche d\'un QR code...</div>'+
-      '<div style="background:#fff;border-radius:12px;padding:14px;margin-top:16px;">'+
-        '<div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px;">La caméra ne scanne pas ? Choisissez directement :</div>'+
-        (candidats.length?
-          '<select id="qr-manual-select" style="width:100%;padding:10px;border-radius:8px;border:1.5px solid var(--rule);font-size:14px;margin-bottom:10px;">'+opts+'</select>'+
-          '<button class="btn-primary" style="width:100%;background:var(--teal);" data-action="submit-manual-scan">✅ Valider cette caisse</button>'
-        :'<div style="font-size:12px;color:var(--ink-3);">Aucune caisse disponible pour cette action.</div>')+
-      '</div>'+
-      '<button class="btn-outline" style="width:100%;margin-top:14px;background:#fff;" data-action="close-scanner">Annuler</button>'+
-    '</div>'+
-  '</div>';
+  var html='<div class="modal-overlay" data-action="dismiss-caisse-scan"><div class="modal-sheet" data-action="noop" style="text-align:center;">';
+  html+='<div style="font-size:32px;margin-bottom:6px;">🧺</div>';
+  html+='<div style="font-family:var(--display);font-size:20px;margin-bottom:2px;">Caisse n°'+c.numero+'</div>';
+  html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:18px;">'+esc(c.taille)+' · '+esc(statutLabel)+'</div>';
+  if(c.statut==='stock'){
+    if(tournees.length){
+      html+='<div class="field" style="text-align:left;"><div class="field-label">Charger pour une tournée</div><select id="scan-tournee-select">'+tournees.map(function(t){return'<option value="'+esc(t)+'">Tournée '+esc(t)+'</option>';}).join('')+'</select></div>';
+      html+='<button class="btn-primary" style="width:100%;margin-bottom:12px;background:var(--teal);" data-action="confirm-scan-charge">✅ Marquer chargée</button>';
+    }
+  }
+  if(c.statut==='stock'||c.statut==='charge'){
+    if(clientsDispo.length){
+      html+='<div class="field" style="text-align:left;"><div class="field-label">Marquer livrée chez un client</div><select id="scan-client-select">'+clientsDispo.map(function(d){return'<option value="'+d.id+'">'+esc(d.client)+'</option>';}).join('')+'</select></div>';
+      html+='<button class="btn-primary" style="width:100%;margin-bottom:12px;background:var(--amber);" data-action="confirm-scan-depart">✅ Marquer livrée</button>';
+    }
+  }
+  if(c.statut==='chez_client'){
+    html+='<button class="btn-primary" style="width:100%;margin-bottom:12px;background:var(--green);" data-action="confirm-scan-retour">✅ Marquer retournée en stock</button>';
+  }
+  html+='<button class="btn-outline" style="width:100%;" data-action="dismiss-caisse-scan">Annuler</button>';
+  html+='</div></div>';
+  return html;
 }
 function renderLivreursModal(){if(!state.showLivreurs)return'';var livItems=state.livreurs.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun livreur enregistré.</p>':'<div class="livreur-list">'+state.livreurs.map(function(l){return'<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+'</div><div style="display:flex;gap:6px;"><button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div></div>';}).join('')+'</div>';return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div></div></div>';}
 function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';html+='<div class="divider"></div>';
@@ -1974,7 +1913,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">← Retour</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
-  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div style="display:flex;gap:8px;margin-bottom:8px;"><button class="btn-outline" style="flex:1;" data-action="open-scanner" data-mode="depart" data-id="'+d.id+'">🧺 Caisse envoyée</button><button class="btn-outline" style="flex:1;" data-action="open-scanner" data-mode="retour">🧺 Caisse retournée</button></div>';html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
+  if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderTourneeDetailModal(){
   if(!state.selectedTourneeNum)return'';
@@ -1995,8 +1934,7 @@ function renderTourneeDetailModal(){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
     html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;">Ouvrez un BL ci-dessous pour le valider ou le modifier individuellement.</div>';
   } else {
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner" data-mode="charge" data-tournee="'+esc(tn)+'">🧺 Scanner les caisses chargées</button>';
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>';
+    html+='<div style="background:var(--paper-2);border-radius:10px;padding:12px;margin-bottom:16px;text-align:left;"><div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:4px;">📷 Caisses à charger ou à récupérer</div><div style="font-size:12px;color:var(--ink-2);line-height:1.5;">Visez le QR code de la caisse avec l\'appareil photo de votre téléphone : l\'application s\'ouvre automatiquement avec les actions possibles.</div></div>';
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
     } else {
@@ -2053,7 +1991,7 @@ function renderResponsableApp(){
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderScannerModal()+renderRapportModal()+renderDashboardModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderCaisseScanActionModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -2213,18 +2151,49 @@ if(action==='retour-caisse-direct'){
   if(confirm('Marquer cette caisse comme revenue en stock ?')){marquerCaisseRetour(id);render();}
   return;
 }
-if(action==='open-scanner'){
-  state.showScanner=true;
-  state.scanTarget={mode:el.getAttribute('data-mode'),deliveryId:el.getAttribute('data-id')||null,tourneeNum:el.getAttribute('data-tournee')||null};
+function clearCaisseScanUrl(){
+  state.pendingCaisseId=null;
+  if(window.history&&window.history.replaceState){
+    var cleanUrl=window.location.origin+window.location.pathname;
+    window.history.replaceState({},'',cleanUrl);
+  }
+}
+if(action==='dismiss-caisse-scan'){
+  clearCaisseScanUrl();
   render();
   return;
 }
-if(action==='close-scanner'){stopQrScanner();state.showScanner=false;state.scanTarget=null;render();return;}
-if(action==='submit-manual-scan'){
-  var selEl=document.getElementById('qr-manual-select');
-  var caisseIdSel=selEl?selEl.value:'';
-  if(!caisseIdSel){alert('Choisissez une caisse dans la liste.');return;}
-  handleQrScanResult('CAISSE:'+caisseIdSel);
+if(action==='confirm-scan-charge'){
+  var caisseCh=state.caisses.find(function(c){return c.id===state.pendingCaisseId;});
+  var tnSel=document.getElementById('scan-tournee-select');
+  if(caisseCh&&tnSel&&tnSel.value){
+    marquerCaisseChargee(caisseCh.id,tnSel.value);
+    clearCaisseScanUrl();
+    render();
+    alert('Caisse n°'+caisseCh.numero+' chargée pour la tournée '+tnSel.value+'.');
+  }
+  return;
+}
+if(action==='confirm-scan-depart'){
+  var caisseDe=state.caisses.find(function(c){return c.id===state.pendingCaisseId;});
+  var clSel=document.getElementById('scan-client-select');
+  var delivSel=clSel?state.deliveries.find(function(x){return x.id===clSel.value;}):null;
+  if(caisseDe&&delivSel){
+    marquerCaisseDepart(caisseDe.id,delivSel.client,delivSel.id);
+    clearCaisseScanUrl();
+    render();
+    alert('Caisse n°'+caisseDe.numero+' associée à '+delivSel.client+'.');
+  }
+  return;
+}
+if(action==='confirm-scan-retour'){
+  var caisseRe=state.caisses.find(function(c){return c.id===state.pendingCaisseId;});
+  if(caisseRe){
+    marquerCaisseRetour(caisseRe.id);
+    clearCaisseScanUrl();
+    render();
+    alert('Caisse n°'+caisseRe.numero+' de retour en stock.');
+  }
   return;
 }
 if(action==='download-qr-code'){
