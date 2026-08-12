@@ -15,6 +15,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script type="module">
 // ── FIREBASE CONFIG ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -561,7 +563,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{}};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -722,6 +724,32 @@ var sigCanvas=null;
 
 // ── QR CODES (CAISSES) ──
 var qrStream=null, qrRafId=null;
+var trajetMapInstance=null;
+function initTrajetMap(){
+  var mapEl=document.getElementById('trajet-map');
+  if(!mapEl){
+    if(trajetMapInstance){trajetMapInstance.remove();trajetMapInstance=null;}
+    return;
+  }
+  if(typeof L==='undefined')return;
+  var tn=state.showTrajet;
+  var items=state.deliveries.filter(function(d){return d.tourneeNum===tn&&d.geoLat&&d.geoLng&&d.deliveredAt;});
+  items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
+  if(!items.length)return;
+  if(trajetMapInstance){trajetMapInstance.remove();trajetMapInstance=null;}
+  trajetMapInstance=L.map('trajet-map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap contributors',maxZoom:19
+  }).addTo(trajetMapInstance);
+  var latlngs=items.map(function(d){return[d.geoLat,d.geoLng];});
+  items.forEach(function(d,i){
+    var heure=new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    L.marker([d.geoLat,d.geoLng]).addTo(trajetMapInstance)
+      .bindPopup('<b>'+(i+1)+'. '+d.client.replace(/</g,'&lt;')+'</b><br>'+heure);
+  });
+  L.polyline(latlngs,{color:'#0A6878',weight:3,opacity:0.8}).addTo(trajetMapInstance);
+  trajetMapInstance.fitBounds(latlngs,{padding:[30,30]});
+}
 function initQrFeatures(){
   var qrTarget=document.getElementById('qr-render-target');
   if(qrTarget && state.showQrCard && typeof QRCode!=='undefined'){
@@ -753,6 +781,22 @@ function initQrFeatures(){
   }
   if((!video||!state.showScanner) && qrStream){
     stopQrScanner();
+  }
+  var scanInput=document.getElementById('qr-scanner-input');
+  if(scanInput && !scanInput._wired){
+    scanInput._wired=true;
+    scanInput.focus();
+    scanInput.addEventListener('keydown',function(e){
+      if(e.key==='Enter'){
+        e.preventDefault();
+        var val=scanInput.value.trim();
+        if(val)handleQrScanResult(val);
+      }
+    });
+    // Une douchette perd parfois le focus (changement d'écran) : on le reprend automatiquement
+    scanInput.addEventListener('blur',function(){
+      setTimeout(function(){if(document.getElementById('qr-scanner-input'))document.getElementById('qr-scanner-input').focus();},200);
+    });
   }
 }
 function startQrScanner(video){
@@ -1370,6 +1414,21 @@ function assignLivreur(id,livreurId,wholeTournee){
   render();
 }
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
+function captureGeoLocationAsync(deliveryIds){
+  if(!navigator.geolocation)return;
+  var ids=Array.isArray(deliveryIds)?deliveryIds:[deliveryIds];
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var lat=pos.coords.latitude,lng=pos.coords.longitude;
+    state.deliveries=state.deliveries.map(function(d){
+      if(ids.indexOf(d.id)===-1)return d;
+      return Object.assign({},d,{geoLat:lat,geoLng:lng});
+    });
+    persist(state.deliveries);
+    if(state.selectedTourneeNum||state.selectedId)render();
+  },function(err){
+    // Echec silencieux : la position est une donnee complementaire, jamais bloquante pour la validation
+  },{enableHighAccuracy:true,timeout:8000,maximumAge:30000});
+}
 function getDeliveryPhotos(d){
   if(d.photos&&d.photos.length)return d.photos.filter(function(p){return p&&p.src;});
   if(d.photo)return[{src:d.photo,at:d.deliveredAt||null}];
@@ -1860,7 +1919,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+=renderTimeline(true)+'</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderTrajetModal();
   return html;
 }
 
@@ -1955,6 +2014,10 @@ function renderScannerModal(){
       '<video id="qr-video" style="width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover;" playsinline muted autoplay></video>'+
       '<canvas id="qr-canvas" style="display:none;"></canvas>'+
       '<div id="qr-scan-status" style="color:#fff;font-size:12px;margin-top:10px;min-height:16px;">Démarrage de la caméra...</div>'+
+      '<div style="background:#fff;border-radius:12px;padding:12px;margin-top:14px;">'+
+        '<div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px;text-align:left;">🔫 Douchette / lecteur physique</div>'+
+        '<input id="qr-scanner-input" type="text" placeholder="Visez le QR code avec le lecteur..." style="width:100%;padding:10px;border-radius:8px;border:1.5px solid var(--rule);font-size:14px;box-sizing:border-box;" autocomplete="off"/>'+
+      '</div>'+
       '<button class="btn-outline" style="width:100%;margin-top:14px;background:#fff;" data-action="close-scanner">Annuler</button>'+
     '</div>'+
   '</div>';
@@ -2005,6 +2068,29 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
   if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-outline" data-action="modify" data-id="'+d.id+'">✏️ Modifier</button><button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
+function renderTrajetModal(){
+  if(!state.showTrajet)return'';
+  var tn=state.showTrajet;
+  var items=state.deliveries.filter(function(d){return d.tourneeNum===tn&&d.geoLat&&d.geoLng&&d.deliveredAt;});
+  items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
+  var html='<div class="modal-overlay" data-action="close-trajet"><div class="modal-sheet" data-action="noop">';
+  html+='<div class="modal-head"><h2 class="modal-title">🗺️ Trajet réel — Tournée '+esc(tn)+'</h2><button class="modal-close" data-action="close-trajet">←</button></div>';
+  html+='<div id="trajet-map" style="width:100%;height:280px;border-radius:10px;margin-bottom:16px;background:var(--paper-2);"></div>';
+  html+='<div class="section-lbl">Ordre réel des arrêts</div>';
+  items.forEach(function(d,i){
+    var heure=new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    html+='<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule);">'+
+      '<div style="width:26px;height:26px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-right:10px;flex-shrink:0;">'+(i+1)+'</div>'+
+      '<div style="flex:1;"><div style="font-size:13px;font-weight:700;color:var(--ink);">'+esc(d.client)+'</div><div style="font-size:11px;color:var(--ink-3);">'+heure+'</div></div>'+
+    '</div>';
+    if(i<items.length-1){
+      var deltaMin=Math.round((new Date(items[i+1].deliveredAt)-new Date(d.deliveredAt))/60000);
+      html+='<div style="font-size:11px;color:var(--teal-d);padding:4px 0 4px 36px;">⏱ '+deltaMin+' min jusqu\'à l\'arrêt suivant</div>';
+    }
+  });
+  html+='</div></div>';
+  return html;
+}
 function renderTourneeDetailModal(){
   if(!state.selectedTourneeNum)return'';
   var tn=state.selectedTourneeNum;
@@ -2016,6 +2102,10 @@ function renderTourneeDetailModal(){
   var html='<div class="modal-overlay" data-action="close-tournee"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</h2><button class="modal-close" data-action="close-tournee">←</button></div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
+  var itemsAvecGeo=items.filter(function(d){return d.geoLat&&d.geoLng&&d.deliveredAt;});
+  if(itemsAvecGeo.length>=2){
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-trajet" data-tournee="'+esc(tn)+'">🗺️ Voir le trajet réel ('+itemsAvecGeo.length+' points)</button>';
+  }
   if(items.some(function(d){return d.blPdf;}))html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'">📚 Télécharger le PDF groupé de la tournée</button>';
   if(state.role==='responsable'){
     var opts='<option value="">— Choisir un livreur —</option>';
@@ -2081,7 +2171,7 @@ function renderResponsableApp(){
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -2089,7 +2179,7 @@ function renderLivreurName(){return'<div class="login-form-photo"><div class="lo
 
 function renderPassword(){return'<div class="login-form-photo"><div class="login-form-card login-form-card-teal"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-light">Accès responsable</h1><p class="login-form-sub login-form-sub-light">Mot de passe requis</p></div><label class="form-label form-label-teal">Mot de passe</label><input class="form-input form-input-teal" id="l-pwd" type="password" placeholder="••••••••" /><button class="form-btn-teal" data-action="do-resp-login">Entrer</button><button class="form-back form-back-teal" data-action="goto-choose">← Retour</button><p class="form-error form-error-teal">'+esc(state.loginError)+'</p></div></div>';}
 
-function render(){var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-name','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();}
+function render(){var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-name','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();}
 
 document.getElementById('app').addEventListener('click',function(e){var el=e.target.closest('[data-action]');if(!el)return;var action=el.getAttribute('data-action'),id=el.getAttribute('data-id');if(action==='noop'){e.stopPropagation();return;}
 if(action==='goto-choose'){state.screen='choose';state.loginError='';render();return;}
@@ -2329,6 +2419,8 @@ if(action==='assign-livreur-tournee'){assignLivreur(id,state.selectedLivreurId,t
 if(action==='assign-livreur-single'){assignLivreur(id,state.selectedLivreurId,false);return;}
 if(action==='open-tournee'){state.selectedTourneeNum=el.getAttribute('data-tournee');render();return;}
 if(action==='close-tournee'){state.selectedTourneeNum=null;render();return;}
+if(action==='open-trajet'){state.showTrajet=el.getAttribute('data-tournee');render();return;}
+if(action==='close-trajet'){state.showTrajet=null;render();return;}
 if(action==='assign-tournee-detail'){
   var tnA=el.getAttribute('data-tournee');
   var livSelId=document.getElementById('tn-livreur-select')?document.getElementById('tn-livreur-select').value:'';
@@ -2345,10 +2437,12 @@ if(action==='mark-tournee-delivered'){
   if(!confirm('Valider toute la tournée '+tnD+' comme livrée ?'))return;
   var noteD=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
   var nowIso=new Date().toISOString();
+  var justDeliveredIds=state.deliveries.filter(function(d){return d.tourneeNum===tnD&&d.status!=='delivered';}).map(function(d){return d.id;});
   persist(state.deliveries.map(function(d){
     if(d.tourneeNum===tnD&&d.status!=='delivered')return Object.assign({},d,{status:'delivered',deliveredAt:nowIso,note:noteD||d.note});
     return d;
   }));
+  captureGeoLocationAsync(justDeliveredIds);
   state.pendingNote='';
   render();
   return;
@@ -2457,6 +2551,7 @@ else if(action==='submit-point'){
   var liv=getLivreurById(selId);
   var note=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
   pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note});
+  captureGeoLocationAsync(id);
   state.pendingNote='';
   if(state.role==='livreur'){state.selectedId=null;render();}
   state.modifyMode=false;
@@ -2484,6 +2579,10 @@ window.onFbSaveError=function(collection_name, err){
   var msg=(err&&err.message)||'';
   if(/longer than|exceeds|invalid-argument|payload/i.test(msg)){
     alert('⚠️ Une photo est trop volumineuse pour etre synchronisee en ligne. Elle reste visible sur cet appareil mais ne sera pas partagee avec les autres tant que le probleme persiste.');
+    return;
+  }
+  if(collection_name==='fdj-caisses'){
+    alert('⚠️ La synchronisation de cette caisse a échoué (elle reste visible sur cet appareil, mais ne sera pas partagée avec les autres tant que le problème n\'est pas résolu). Détail technique : '+msg);
   }
 };
 
