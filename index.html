@@ -480,8 +480,10 @@ function saveCaisses(l){
   }
   doFbSaveCai();
 }
+function caisseLabel(c){return c.taille+' '+c.numero;}
 function createCaisses(taille,quantite){
-  var existing=state.caisses.map(function(c){return parseInt(c.numero,10)||0;});
+  var tailleKey=taille.trim().toLowerCase();
+  var existing=state.caisses.filter(function(c){return (c.taille||'').trim().toLowerCase()===tailleKey;}).map(function(c){return parseInt(c.numero,10)||0;});
   var maxNum=existing.length?Math.max.apply(null,existing):0;
   var created=[];
   for(var i=1;i<=quantite;i++){
@@ -507,6 +509,13 @@ function marquerCaisseRetour(caisseId){
     return Object.assign({},c,{statut:'stock',tourneeNum:'',historique:hist});
   });
   saveCaisses(state.caisses);
+}
+function deleteCaisses(ids){
+  state.caisses=state.caisses.filter(function(c){return ids.indexOf(c.id)===-1;});
+  saveCaisses(state.caisses);
+  ids.forEach(function(cid){
+    if(window.fbReady && window.fbDelete){window.fbDelete('fdj-caisses', cid);}
+  });
 }
 // Synchroniser livreurs depuis Firebase au démarrage
 function initFbLivreurs(){
@@ -552,7 +561,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{}};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -717,7 +726,26 @@ function initQrFeatures(){
   var qrTarget=document.getElementById('qr-render-target');
   if(qrTarget && state.showQrCard && typeof QRCode!=='undefined'){
     qrTarget.innerHTML='';
-    new QRCode(qrTarget,{text:'CAISSE:'+state.showQrCard,width:220,height:220});
+    var qrCaisse=state.caisses.find(function(x){return x.id===state.showQrCard;});
+    var label=qrCaisse?(qrCaisse.taille+' '+qrCaisse.numero):'';
+    var qrTemp=document.createElement('div');
+    qrTemp.style.display='none';
+    document.body.appendChild(qrTemp);
+    new QRCode(qrTemp,{text:'CAISSE:'+state.showQrCard,width:220,height:220});
+    var qrSrc=qrTemp.querySelector('canvas')||qrTemp.querySelector('img');
+    var composite=document.createElement('canvas');
+    composite.width=240;
+    composite.height=270;
+    var cctx=composite.getContext('2d');
+    cctx.fillStyle='#ffffff';
+    cctx.fillRect(0,0,composite.width,composite.height);
+    if(qrSrc)cctx.drawImage(qrSrc,10,10,220,220);
+    cctx.fillStyle='#000000';
+    cctx.font='bold 22px sans-serif';
+    cctx.textAlign='center';
+    cctx.fillText(label,composite.width/2,258);
+    qrTarget.appendChild(composite);
+    document.body.removeChild(qrTemp);
   }
   var video=document.getElementById('qr-video');
   if(video && state.showScanner && !qrStream){
@@ -797,11 +825,11 @@ function handleQrScanResult(text){
   if(target&&target.mode==='charge'){
     marquerCaisseChargee(caisse.id,target.tourneeNum);
     render();
-    alert('Caisse n°'+caisse.numero+' chargée pour la tournée '+target.tourneeNum+'.');
+    alert(caisseLabel(caisse)+' chargée pour la tournée '+target.tourneeNum+'.');
   } else if(target&&target.mode==='retour'){
     marquerCaisseRetour(caisse.id);
     render();
-    alert('Caisse n°'+caisse.numero+' de retour en stock.');
+    alert(caisseLabel(caisse)+' de retour en stock.');
   } else {
     render();
   }
@@ -977,10 +1005,24 @@ function exportExcel(dateFrom, dateTo){
 
     d.setDate(d.getDate()+1);
   }
-  var ws1=XLSX.utils.aoa_to_sheet(rows1),ws2=XLSX.utils.aoa_to_sheet(rows2);
+  var rows3=[['Identification','Categorie','Statut','Tournee','Date de chargement','Jours depuis chargement']];
+  var caissesNonRetournees=state.caisses.filter(function(c){return c.statut==='charge';}).sort(function(a,b){
+    if(a.taille!==b.taille)return a.taille<b.taille?-1:1;
+    return a.numero-b.numero;
+  });
+  caissesNonRetournees.forEach(function(c){
+    var histCharge=(c.historique||[]).filter(function(h){return h.action==='charge';});
+    var dernierCharge=histCharge.length?histCharge[histCharge.length-1]:null;
+    var dateCharge=dernierCharge?new Date(dernierCharge.date):null;
+    var dateChargeStr=dateCharge?dateCharge.toLocaleDateString('fr-FR')+' '+dateCharge.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
+    var joursDepuis=dateCharge?Math.floor((Date.now()-dateCharge.getTime())/86400000):'';
+    rows3.push([c.taille+' '+c.numero,c.taille,'Chargee, non retournee','Tournee '+c.tourneeNum,dateChargeStr,joursDepuis]);
+  });
+  var ws1=XLSX.utils.aoa_to_sheet(rows1),ws2=XLSX.utils.aoa_to_sheet(rows2),ws3=XLSX.utils.aoa_to_sheet(rows3);
   ws1['!cols']=autoFitCols(rows1);ws1['!autofilter']={ref:'A1:K'+rows1.length};ws1['!freeze']={ySplit:1};
   ws2['!cols']=autoFitCols(rows2);ws2['!autofilter']={ref:'A1:H'+rows2.length};
-  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');
+  ws3['!cols']=autoFitCols(rows3);ws3['!autofilter']={ref:'A1:F'+rows3.length};
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');XLSX.utils.book_append_sheet(wb,ws3,'Stock reel caisses');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
   XLSX.writeFile(wb,'tournee-'+suffix+'.xlsx');
 }
@@ -1570,7 +1612,7 @@ function renderDashboardModal(){
       '</div>'+
       body+
       (stats?'<button class="btn-outline" style="width:100%;margin-top:6px;padding:11px;" data-action="print-dashboard">🖨 Version imprimable / PDF</button>':'')+
-      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-detailed-excel">💾 Export Excel (Livraisons + Camions)</button>':'')+
+      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-detailed-excel">💾 Export Excel (Livraisons + Camions + Caisses)</button>':'')+
     '</div>'+
   '</div>';
 }
@@ -1777,19 +1819,9 @@ function renderLivreurApp(){
     '</div>';
   });
   html+='<button style="width:100%;padding:10px;margin-top:6px;border-radius:8px;border:1.5px dashed var(--teal);background:none;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;" data-action="add-camion">+ Ajouter un camion</button>';
-  var mesTourneesNums=[];
-  state.deliveries.forEach(function(d){if(d.tourneeNum&&d.livreur===state.livreurName&&mesTourneesNums.indexOf(d.tourneeNum)===-1)mesTourneesNums.push(d.tourneeNum);});
   html+='<div class="camion-card" style="margin-top:12px;">'+
-    '<div class="camion-title">🧺 Caisses</div>';
-  if(mesTourneesNums.length>1){
-    html+='<div class="field"><div class="field-label">Tournée concernée</div><select id="lv-caisse-tournee-select">'+mesTourneesNums.map(function(t){return'<option value="'+esc(t)+'">Tournée '+esc(t)+'</option>';}).join('')+'</select></div>'+
-      '<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner-livreur-charge">🧺 Scanner les caisses chargées</button>';
-  } else if(mesTourneesNums.length===1){
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="open-scanner" data-mode="charge" data-tournee="'+esc(mesTourneesNums[0])+'">🧺 Scanner les caisses chargées</button>';
-  } else {
-    html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Aucune tournée assignée pour le moment.</div>';
-  }
-  html+='<button class="btn-outline" style="width:100%;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>'+
+    '<div class="camion-title">🧺 Caisses</div>'+
+    '<button class="btn-outline" style="width:100%;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse</button>'+
   '</div>';
   var unassigned=state.deliveries.filter(function(d){return d.status==='pending'&&!d.livreur;});
   if(unassigned.length){
@@ -1849,10 +1881,12 @@ function renderAddModal(){if(!state.showAdd)return'';
 }
 function renderCaissesModal(){
   if(!state.showCaisses)return'';
-  var enStock=state.caisses.filter(function(c){return c.statut==='stock';});
-  var chargees=state.caisses.filter(function(c){return c.statut==='charge';});
-  var parTournee={};
-  chargees.forEach(function(c){if(!parTournee[c.tourneeNum])parTournee[c.tourneeNum]=[];parTournee[c.tourneeNum].push(c);});
+  var enStock=state.caisses.filter(function(c){return c.statut==='stock';}).sort(function(a,b){return a.numero-b.numero;});
+  var chargees=state.caisses.filter(function(c){return c.statut==='charge';}).sort(function(a,b){return a.numero-b.numero;});
+  var parTournee={},tourneeKeys=[];
+  chargees.forEach(function(c){if(!parTournee[c.tourneeNum]){parTournee[c.tourneeNum]=[];tourneeKeys.push(c.tourneeNum);}parTournee[c.tourneeNum].push(c);});
+  var selMode=state.caisseSelMode;
+  var nbSel=Object.keys(state.selectedCaisses||{}).filter(function(k){return state.selectedCaisses[k];}).length;
   var html='<div class="modal-overlay" data-action="close-caisses"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🧺 Caisses</h2><button class="modal-close" data-action="close-caisses">←</button></div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:16px;">'+
@@ -1860,20 +1894,31 @@ function renderCaissesModal(){
     '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--green);">'+enStock.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
     '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--teal);">'+chargees.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Chargées</div></div>'+
   '</div>';
-  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse (inventaire)</button>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse (inventaire)</button>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;'+(selMode?'background:var(--red-s);border-color:var(--red);color:var(--red);':'')+'" data-action="toggle-caisse-sel-mode">'+(selMode?'✕ Annuler la sélection':'🗑 Sélectionner pour supprimer')+'</button>';
+  if(selMode&&nbSel>0){
+    html+='<button class="btn-danger" style="width:100%;margin-bottom:16px;" data-action="delete-selected-caisses">🗑 Supprimer '+nbSel+' caisse'+(nbSel>1?'s':'')+' sélectionnée'+(nbSel>1?'s':'')+'</button>';
+  }
   html+='<div class="divider"></div>';
-  html+='<div class="section-lbl">Créer des caisses</div>';
-  html+='<div class="add-row"><input id="cs-taille" placeholder="Taille (ex: Petite)" type="text"/><input id="cs-qte" placeholder="Quantité" type="number" min="1" value="1" style="max-width:80px;"/><button class="btn-add-lv" data-action="submit-create-caisses">+</button></div>';
-  html+='<div class="divider"></div>';
+  if(!selMode){
+    html+='<div class="section-lbl">Créer des caisses</div>';
+    html+='<div class="add-row"><input id="cs-taille" placeholder="Taille (ex: Petite)" type="text"/><input id="cs-qte" placeholder="Quantité" type="number" min="1" value="1" style="max-width:80px;"/><button class="btn-add-lv" data-action="submit-create-caisses">+</button></div>';
+    html+='<div class="divider"></div>';
+  }
+  function caisseRow(c,extraAction){
+    var checked=state.selectedCaisses&&state.selectedCaisses[c.id]?'checked':'';
+    var left=selMode?'<input type="checkbox" '+checked+' data-action="toggle-select-caisse" data-id="'+c.id+'" style="margin-right:8px;"/>':'';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--rule);font-size:12px;">'+
+      '<span style="display:flex;align-items:center;">'+left+esc(caisseLabel(c))+'</span>'+
+      (selMode?'':extraAction)+
+    '</div>';
+  }
   if(chargees.length){
     html+='<div class="section-lbl">Chargées, en tournée</div>';
-    Object.keys(parTournee).forEach(function(tnKey){
+    tourneeKeys.forEach(function(tnKey){
       html+='<div style="font-size:12px;font-weight:700;color:var(--ink);margin:8px 0 4px;">🚛 Tournée '+esc(tnKey)+' ('+parTournee[tnKey].length+' caisse'+(parTournee[tnKey].length>1?'s':'')+')</div>';
       parTournee[tnKey].forEach(function(c){
-        html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;color:var(--ink-2);">'+
-          '<span>Caisse n°'+c.numero+' — '+esc(c.taille)+'</span>'+
-          '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="retour-caisse-direct" data-id="'+c.id+'">Retour manuel</button>'+
-        '</div>';
+        html+=caisseRow(c,'<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="retour-caisse-direct" data-id="'+c.id+'">Retour manuel</button>');
       });
     });
     html+='<div class="divider"></div>';
@@ -1883,10 +1928,7 @@ function renderCaissesModal(){
     html+='<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:12px 0;">Aucune caisse en stock.</p>';
   } else {
     enStock.forEach(function(c){
-      html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--rule);font-size:12px;">'+
-        '<span>Caisse n°'+c.numero+' — '+esc(c.taille)+'</span>'+
-        '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="view-qr-code" data-id="'+c.id+'">QR code</button>'+
-      '</div>';
+      html+=caisseRow(c,'<span style="display:flex;gap:6px;"><button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="view-qr-code" data-id="'+c.id+'">QR code</button><button class="livreur-del" data-action="delete-single-caisse" data-id="'+c.id+'">🗑</button></span>');
     });
   }
   html+='</div></div>';
@@ -1897,8 +1939,7 @@ function renderQrCardModal(){
   var c=state.caisses.find(function(x){return x.id===state.showQrCard;});
   if(!c){state.showQrCard=null;return'';}
   return '<div class="modal-overlay" data-action="close-qr-card"><div class="modal-sheet" data-action="noop" style="text-align:center;">'+
-    '<div class="modal-head"><h2 class="modal-title">Caisse n°'+c.numero+'</h2><button class="modal-close" data-action="close-qr-card">←</button></div>'+
-    '<div style="font-size:13px;color:var(--ink-3);margin-bottom:12px;">'+esc(c.taille)+'</div>'+
+    '<div class="modal-head"><h2 class="modal-title">'+esc(caisseLabel(c))+'</h2><button class="modal-close" data-action="close-qr-card">←</button></div>'+
     '<div id="qr-render-target" style="display:flex;justify-content:center;margin-bottom:16px;"></div>'+
     '<button class="btn-outline" style="width:100%;" data-action="download-qr-code" data-id="'+c.id+'">💾 Télécharger l\'image</button>'+
   '</div></div>';
@@ -1982,6 +2023,7 @@ function renderTourneeDetailModal(){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
     html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;">Ouvrez un BL ci-dessous pour le valider ou le modifier individuellement.</div>';
   } else {
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;" data-action="open-scanner" data-mode="charge" data-tournee="'+esc(tn)+'">🧺 Scanner les caisses chargées</button>';
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
     } else {
@@ -2198,19 +2240,45 @@ if(action==='retour-caisse-direct'){
   if(confirm('Marquer cette caisse comme revenue en stock ?')){marquerCaisseRetour(id);render();}
   return;
 }
+if(action==='toggle-caisse-sel-mode'){
+  state.caisseSelMode=!state.caisseSelMode;
+  state.selectedCaisses={};
+  render();
+  return;
+}
+if(action==='toggle-select-caisse'){
+  if(state.selectedCaisses[id])delete state.selectedCaisses[id];
+  else state.selectedCaisses[id]=true;
+  render();
+  return;
+}
+if(action==='delete-single-caisse'){
+  var pwdDel1=prompt('Suppression d\'une caisse. Entrez le mot de passe responsable pour confirmer :');
+  if(pwdDel1===null)return;
+  if(pwdDel1!==MOT_DE_PASSE){alert('Mot de passe incorrect. Suppression annulée.');return;}
+  deleteCaisses([id]);
+  render();
+  return;
+}
+if(action==='delete-selected-caisses'){
+  var idsToDelete=Object.keys(state.selectedCaisses).filter(function(k){return state.selectedCaisses[k];});
+  if(!idsToDelete.length)return;
+  var pwdDelN=prompt('Suppression de '+idsToDelete.length+' caisse(s). Entrez le mot de passe responsable pour confirmer :');
+  if(pwdDelN===null)return;
+  if(pwdDelN!==MOT_DE_PASSE){alert('Mot de passe incorrect. Suppression annulée.');return;}
+  deleteCaisses(idsToDelete);
+  state.caisseSelMode=false;
+  state.selectedCaisses={};
+  render();
+  return;
+}
 if(action==='open-scanner'){
   state.showScanner=true;
   state.scanTarget={mode:el.getAttribute('data-mode'),tourneeNum:el.getAttribute('data-tournee')||null};
   render();
   return;
 }
-if(action==='open-scanner-livreur-charge'){
-  var tnPick=document.getElementById('lv-caisse-tournee-select');
-  state.showScanner=true;
-  state.scanTarget={mode:'charge',tourneeNum:tnPick?tnPick.value:null};
-  render();
-  return;
-}
+
 if(action==='close-scanner'){stopQrScanner();state.showScanner=false;state.scanTarget=null;render();return;}
 if(action==='download-qr-code'){
   var canvasQr=document.querySelector('#qr-render-target canvas');
