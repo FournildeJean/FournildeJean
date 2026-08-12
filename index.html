@@ -968,6 +968,7 @@ function saveCamionFields(){
 function exportExcel(dateFrom, dateTo){
   if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
   saveCamionFields();state.camions=loadCamions(state.date);
+  state.caisses=loadCaisses();
   dateFrom=dateFrom||state.date;dateTo=dateTo||state.date;
   var rows1=[['Date','Tournee','Categorie tournee','N BL','Client','Livreur','Statut','Heure livree','Produit','Quantite','Incident']];
   var rows2=[['Date','Livreur','Tel Livreur','N Camion','Heure prise','Heure deposee','Nb livraisons','Signature']];
