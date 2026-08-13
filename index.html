@@ -1017,6 +1017,28 @@ function saveCamionFields(){
   if(Object.keys(updates).length)saveCamions(state.date,state.camions);
 }
 
+function exportCaissesNonRetournees(){
+  if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
+  state.caisses=loadCaisses();
+  var rows=[['Identification','Categorie','Tournee','Clients de la tournee','Date de chargement','Jours depuis chargement']];
+  var chargees=state.caisses.filter(function(c){return c.statut==='charge';}).sort(function(a,b){
+    if(a.taille!==b.taille)return a.taille<b.taille?-1:1;
+    return a.numero-b.numero;
+  });
+  chargees.forEach(function(c){
+    var clientsTournee=Array.from(new Set(state.deliveries.filter(function(d){return d.tourneeNum===c.tourneeNum;}).map(function(d){return d.client;})));
+    var histCharge=(c.historique||[]).filter(function(h){return h.action==='charge';});
+    var dernierCharge=histCharge.length?histCharge[histCharge.length-1]:null;
+    var dateCharge=dernierCharge?new Date(dernierCharge.date):null;
+    var dateChargeStr=dateCharge?dateCharge.toLocaleDateString('fr-FR')+' '+dateCharge.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
+    var joursDepuis=dateCharge?Math.floor((Date.now()-dateCharge.getTime())/86400000):'';
+    rows.push([c.taille+' '+c.numero,c.taille,'Tournee '+c.tourneeNum,clientsTournee.join(', ')||'(non disponible)',dateChargeStr,joursDepuis]);
+  });
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=autoFitCols(rows);ws['!autofilter']={ref:'A1:F'+rows.length};ws['!freeze']={ySplit:1};
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Caisses non retournees');
+  XLSX.writeFile(wb,'caisses-non-retournees-'+state.date+'.xlsx');
+}
 function exportExcel(dateFrom, dateTo){
   if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
   saveCamionFields();state.camions=loadCamions(state.date);
@@ -1957,10 +1979,11 @@ function renderCaissesModal(){
   if(state._caissesSyncError){
     html+='<div style="background:var(--red-s);border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--red);"><b>⚠️ Synchronisation en panne :</b> les caisses créées ou scannées par d\'autres appareils ne remontent pas ici pour le moment. '+esc(state._caissesSyncError)+'</div>';
   }
+  var totalFiltre=filtre?enStock.length+chargees.length:state.caisses.length;
   html+='<div style="display:flex;gap:8px;margin-bottom:16px;">'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;">'+state.caisses.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Total</div></div>'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--green);">'+enStockAll.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--teal);">'+chargeesAll.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Chargées</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;">'+totalFiltre+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">'+(filtre?esc(filtre):'Total')+'</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--green);">'+enStock.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--teal);">'+chargees.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Chargées</div></div>'+
   '</div>';
   if(toutesCategories.length>1){
     html+='<div class="field"><div class="field-label">🎨 Filtrer par catégorie</div><select id="cs-filter-select">'+
@@ -1986,6 +2009,9 @@ function renderCaissesModal(){
       '<span style="display:flex;align-items:center;">'+left+esc(caisseLabel(c))+'</span>'+
       (selMode?'':extraAction)+
     '</div>';
+  }
+  if(chargeesAll.length){
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="export-caisses-non-retournees">💾 Exporter les caisses non retournées (Excel, par client)</button>';
   }
   if(chargees.length){
     html+='<div class="section-lbl">Chargées, non retournées ('+chargees.length+')</div>';
@@ -2116,7 +2142,10 @@ function getTrajetItemsForCamion(camId){
 function renderTrajetPickerModal(){
   if(!state.showTrajetPicker)return'';
   var html='<div class="modal-overlay" data-action="close-trajet-picker"><div class="modal-sheet" data-action="noop">';
-  html+='<div class="modal-head"><h2 class="modal-title">🗺️ Trajet réel par camion</h2><button class="modal-close" data-action="close-trajet-picker">←</button></div>';
+  html+='<div class="modal-head"><h2 class="modal-title">🗺️ Trajet & Rapport</h2><button class="modal-close" data-action="close-trajet-picker">←</button></div>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-rapport-from-trajet">📄 Générer un rapport imprimable</button>';
+  html+='<div class="divider"></div>';
+  html+='<div class="section-lbl">Trajet réel par camion</div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:14px;">Camions enregistrés le '+esc(formatDateLabel(state.date))+'</div>';
   if(!state.camions.length){
     html+='<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:20px 0;">Aucun camion enregistré ce jour-là.</p>';
@@ -2218,7 +2247,6 @@ function renderResponsableApp(){
     '<button class="resp-action" data-action="refresh"><span class="resp-action-icon">🔄</span><span class="resp-action-lbl">Actu.</span></button>'+
     '<button class="resp-action" data-action="open-livreurs"><span class="resp-action-icon">👥</span><span class="resp-action-lbl">Livreurs</span></button>'+
     '<button class="resp-action" data-action="open-caisses"><span class="resp-action-icon">🧺</span><span class="resp-action-lbl">Caisses</span></button>'+
-    '<button class="resp-action" data-action="open-rapport"><span class="resp-action-icon">📄</span><span class="resp-action-lbl">Rapport</span></button>'+
     '<button class="resp-action" data-action="open-dashboard"><span class="resp-action-icon">📊</span><span class="resp-action-lbl">Analyse</span></button>'+
     '<button class="resp-action" data-action="open-trajet-picker"><span class="resp-action-icon">🗺️</span><span class="resp-action-lbl">Trajet</span></button>'+
     '<button class="resp-action resp-action-quit" data-action="logout"><span class="resp-action-icon">🚪</span><span class="resp-action-lbl">Quitter</span></button>'+
@@ -2274,6 +2302,7 @@ if(action==='check-livreur-name'){
   return;
 }
 if(action==='open-rapport'){state.showRapport=true;render();return;}
+if(action==='open-rapport-from-trajet'){state.showTrajetPicker=false;state.showRapport=true;render();return;}
 if(action==='close-rapport'){state.showRapport=false;render();return;}
 if(action==='open-dashboard'){state.showDashboard=true;state._dashboardStats=null;render();return;}
 if(action==='close-dashboard'){state.showDashboard=false;state._dashboardStats=null;render();return;}
@@ -2387,6 +2416,7 @@ if(action==='save-camion'){
 if(action==='open-livreurs'){state.showLivreurs=true;render();return;}
 if(action==='open-caisses'){state.showCaisses=true;render();return;}
 if(action==='close-caisses'){state.showCaisses=false;render();return;}
+if(action==='export-caisses-non-retournees'){exportCaissesNonRetournees();return;}
 if(action==='submit-create-caisses'){
   var csTaille=document.getElementById('cs-taille').value.trim();
   var csQte=parseInt(document.getElementById('cs-qte').value,10);
