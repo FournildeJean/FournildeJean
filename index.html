@@ -566,7 +566,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:''};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -1058,27 +1058,10 @@ function exportExcel(dateFrom, dateTo){
 
     d.setDate(d.getDate()+1);
   }
-  var rows3=[['Identification','Categorie','Statut','Tournee','Date de chargement','Jours depuis chargement']];
-  if(state._caissesSyncError){
-    rows3.push(['⚠️ ATTENTION','La synchronisation des caisses a echoue sur cet appareil','Les caisses chargees sur d\'autres appareils peuvent manquer ci-dessous','','','']);
-  }
-  var caissesNonRetournees=state.caisses.filter(function(c){return c.statut==='charge';}).sort(function(a,b){
-    if(a.taille!==b.taille)return a.taille<b.taille?-1:1;
-    return a.numero-b.numero;
-  });
-  caissesNonRetournees.forEach(function(c){
-    var histCharge=(c.historique||[]).filter(function(h){return h.action==='charge';});
-    var dernierCharge=histCharge.length?histCharge[histCharge.length-1]:null;
-    var dateCharge=dernierCharge?new Date(dernierCharge.date):null;
-    var dateChargeStr=dateCharge?dateCharge.toLocaleDateString('fr-FR')+' '+dateCharge.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
-    var joursDepuis=dateCharge?Math.floor((Date.now()-dateCharge.getTime())/86400000):'';
-    rows3.push([c.taille+' '+c.numero,c.taille,'Chargee, non retournee','Tournee '+c.tourneeNum,dateChargeStr,joursDepuis]);
-  });
-  var ws1=XLSX.utils.aoa_to_sheet(rows1),ws2=XLSX.utils.aoa_to_sheet(rows2),ws3=XLSX.utils.aoa_to_sheet(rows3);
+  var ws1=XLSX.utils.aoa_to_sheet(rows1),ws2=XLSX.utils.aoa_to_sheet(rows2);
   ws1['!cols']=autoFitCols(rows1);ws1['!autofilter']={ref:'A1:K'+rows1.length};ws1['!freeze']={ySplit:1};
   ws2['!cols']=autoFitCols(rows2);ws2['!autofilter']={ref:'A1:H'+rows2.length};
-  ws3['!cols']=autoFitCols(rows3);ws3['!autofilter']={ref:'A1:F'+rows3.length};
-  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');XLSX.utils.book_append_sheet(wb,ws3,'Stock reel caisses');
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
   XLSX.writeFile(wb,'tournee-'+suffix+'.xlsx');
 }
@@ -1690,7 +1673,7 @@ function renderDashboardModal(){
       '</div>'+
       body+
       (stats?'<button class="btn-outline" style="width:100%;margin-top:6px;padding:11px;" data-action="print-dashboard">🖨 Version imprimable / PDF</button>':'')+
-      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-detailed-excel">💾 Export Excel (Livraisons + Camions + Caisses)</button>':'')+
+      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-detailed-excel">💾 Export Excel (Livraisons + Camions)</button>':'')+
     '</div>'+
   '</div>';
 }
@@ -1937,7 +1920,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+=renderTimeline(true)+'</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderTrajetModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal();
   return html;
 }
 
@@ -1959,8 +1942,12 @@ function renderAddModal(){if(!state.showAdd)return'';
 }
 function renderCaissesModal(){
   if(!state.showCaisses)return'';
-  var enStock=state.caisses.filter(function(c){return c.statut==='stock';}).sort(function(a,b){return a.numero-b.numero;});
-  var chargees=state.caisses.filter(function(c){return c.statut==='charge';}).sort(function(a,b){return a.numero-b.numero;});
+  var filtre=state.caisseFilter||'';
+  var toutesCategories=Array.from(new Set(state.caisses.map(function(c){return c.taille;}))).filter(Boolean).sort();
+  var enStockAll=state.caisses.filter(function(c){return c.statut==='stock';});
+  var chargeesAll=state.caisses.filter(function(c){return c.statut==='charge';});
+  var enStock=(filtre?enStockAll.filter(function(c){return c.taille===filtre;}):enStockAll).sort(function(a,b){return a.numero-b.numero;});
+  var chargees=(filtre?chargeesAll.filter(function(c){return c.taille===filtre;}):chargeesAll).sort(function(a,b){return a.numero-b.numero;});
   var parTournee={},tourneeKeys=[];
   chargees.forEach(function(c){if(!parTournee[c.tourneeNum]){parTournee[c.tourneeNum]=[];tourneeKeys.push(c.tourneeNum);}parTournee[c.tourneeNum].push(c);});
   var selMode=state.caisseSelMode;
@@ -1972,9 +1959,15 @@ function renderCaissesModal(){
   }
   html+='<div style="display:flex;gap:8px;margin-bottom:16px;">'+
     '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;">'+state.caisses.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Total</div></div>'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--green);">'+enStock.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
-    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--teal);">'+chargees.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Chargées</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--green);">'+enStockAll.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">En stock</div></div>'+
+    '<div style="flex:1;background:var(--paper-2);border-radius:8px;padding:10px;text-align:center;"><div style="font-family:var(--display);font-size:22px;color:var(--teal);">'+chargeesAll.length+'</div><div style="font-size:9px;text-transform:uppercase;color:var(--ink-3);">Chargées</div></div>'+
   '</div>';
+  if(toutesCategories.length>1){
+    html+='<div class="field"><div class="field-label">🎨 Filtrer par catégorie</div><select id="cs-filter-select">'+
+      '<option value=""'+(filtre===''?' selected':'')+'>Toutes les catégories</option>'+
+      toutesCategories.map(function(cat){return '<option value="'+esc(cat)+'"'+(filtre===cat?' selected':'')+'>'+esc(cat)+'</option>';}).join('')+
+      '</select></div>';
+  }
   html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-scanner" data-mode="retour">🧺 Scanner un retour de caisse (inventaire)</button>';
   html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;'+(selMode?'background:var(--red-s);border-color:var(--red);color:var(--red);':'')+'" data-action="toggle-caisse-sel-mode">'+(selMode?'✕ Annuler la sélection':'🗑 Sélectionner pour supprimer')+'</button>';
   if(selMode&&nbSel>0){
@@ -1995,9 +1988,15 @@ function renderCaissesModal(){
     '</div>';
   }
   if(chargees.length){
-    html+='<div class="section-lbl">Chargées, en tournée</div>';
+    html+='<div class="section-lbl">Chargées, non retournées ('+chargees.length+')</div>';
     tourneeKeys.forEach(function(tnKey){
-      html+='<div style="font-size:12px;font-weight:700;color:var(--ink);margin:8px 0 4px;">🚛 Tournée '+esc(tnKey)+' ('+parTournee[tnKey].length+' caisse'+(parTournee[tnKey].length>1?'s':'')+')</div>';
+      var clientsTournee=Array.from(new Set(state.deliveries.filter(function(d){return d.tourneeNum===tnKey;}).map(function(d){return d.client;})));
+      html+='<div style="font-size:12px;font-weight:700;color:var(--ink);margin:8px 0 2px;">🚛 Tournée '+esc(tnKey)+' ('+parTournee[tnKey].length+' caisse'+(parTournee[tnKey].length>1?'s':'')+')</div>';
+      if(clientsTournee.length){
+        html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:4px;">👤 Client'+(clientsTournee.length>1?'s':'')+' de cette tournée : '+clientsTournee.map(function(c){return esc(c);}).join(', ')+'</div>';
+      } else {
+        html+='<div style="font-size:11px;color:var(--ink-3);margin-bottom:4px;font-style:italic;">Clients non disponibles (tournée d\'un autre jour)</div>';
+      }
       parTournee[tnKey].forEach(function(c){
         html+=caisseRow(c,'<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="retour-caisse-direct" data-id="'+c.id+'">Retour manuel</button>');
       });
@@ -2006,7 +2005,7 @@ function renderCaissesModal(){
   }
   html+='<div class="section-lbl">En stock ('+enStock.length+')</div>';
   if(!enStock.length){
-    html+='<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:12px 0;">Aucune caisse en stock.</p>';
+    html+='<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:12px 0;">Aucune caisse en stock'+(filtre?' pour cette catégorie':'')+'.</p>';
   } else {
     enStock.forEach(function(c){
       html+=caisseRow(c,'<span style="display:flex;gap:6px;"><button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="view-qr-code" data-id="'+c.id+'">QR code</button><button class="livreur-del" data-action="delete-single-caisse" data-id="'+c.id+'">🗑</button></span>');
@@ -2081,9 +2080,10 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';
   if(state.role==='responsable'){
-    var optsR='<option value="">— Choisir un livreur —</option>';
-    state.livreurs.forEach(function(l){var sel=d.livreur===l.name?' selected':'';optsR+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
-    html+='<div class="field"><div class="field-label">👤 Réassigner (remet ce BL en attente)</div><select id="f-livreur-select">'+optsR+'</select></div>';
+    html+='<button class="btn-primary" style="width:100%;margin-bottom:8px;background:var(--amber);" data-action="reassign-keep-livreur" data-id="'+d.id+'">↩️ Renvoyer chez le livreur (remet en attente)</button>';
+    var optsR='<option value="">— Ou choisir un autre livreur —</option>';
+    state.livreurs.forEach(function(l){if(d.livreur===l.name)return;optsR+='<option value="'+esc(l.id)+'">'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
+    html+='<div class="field"><div class="field-label">👤 Changer de livreur (remet aussi en attente)</div><select id="f-livreur-select">'+optsR+'</select></div>';
     if(d.tourneeNum){
       html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="assign-livreur-tournee" data-id="'+d.id+'">👤 Réassigner toute la tournée '+esc(d.tourneeNum)+'</button>';
       html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur-single" data-id="'+d.id+'">👤 Réassigner ce BL uniquement</button>';
@@ -2094,14 +2094,56 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
   if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
   if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
+function getTrajetItemsForCamion(camId){
+  var cam=state.camions.find(function(c){return c.id===camId;});
+  if(!cam)return{cam:null,items:[]};
+  var livObj=getLivreurById(cam.livreurId);
+  var livName=cam.livreurName||(livObj?livObj.name:'');
+  var items=state.deliveries.filter(function(d){return d.livreur===livName&&d.geoLat&&d.geoLng&&d.deliveredAt;});
+  if(cam.heurePrise){
+    var startT=new Date(state.date+'T'+cam.heurePrise+':00');
+    var endT=cam.heureDepose?new Date(state.date+'T'+cam.heureDepose+':00'):null;
+    items=items.filter(function(d){
+      var dt=new Date(d.deliveredAt);
+      if(dt<startT)return false;
+      if(endT&&dt>endT)return false;
+      return true;
+    });
+  }
+  items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
+  return{cam:cam,livName:livName,items:items};
+}
+function renderTrajetPickerModal(){
+  if(!state.showTrajetPicker)return'';
+  var html='<div class="modal-overlay" data-action="close-trajet-picker"><div class="modal-sheet" data-action="noop">';
+  html+='<div class="modal-head"><h2 class="modal-title">🗺️ Trajet réel par camion</h2><button class="modal-close" data-action="close-trajet-picker">←</button></div>';
+  html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:14px;">Camions enregistrés le '+esc(formatDateLabel(state.date))+'</div>';
+  if(!state.camions.length){
+    html+='<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:20px 0;">Aucun camion enregistré ce jour-là.</p>';
+  } else {
+    state.camions.forEach(function(c){
+      var livObj=getLivreurById(c.livreurId);
+      var livName=c.livreurName||(livObj?livObj.name:'(livreur inconnu)');
+      var horaire=c.heurePrise?(' · '+esc(c.heurePrise)+(c.heureDepose?'–'+esc(c.heureDepose):'')):'';
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;text-align:left;" data-action="open-trajet" data-camion-id="'+c.id+'">🚛 '+esc(c.camion||'Camion sans numéro')+' — '+esc(livName)+horaire+'</button>';
+    });
+  }
+  html+='</div></div>';
+  return html;
+}
 function renderTrajetModal(){
   if(!state.showTrajet)return'';
-  var liv=state.showTrajet;
-  var items=state.deliveries.filter(function(d){return d.livreur===liv&&d.geoLat&&d.geoLng&&d.deliveredAt;});
-  items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
+  var res=getTrajetItemsForCamion(state.showTrajet);
+  if(!res.cam){state.showTrajet=null;return'';}
+  var cam=res.cam,items=res.items,liv=res.livName;
   var html='<div class="modal-overlay" data-action="close-trajet"><div class="modal-sheet" data-action="noop">';
-  html+='<div class="modal-head"><h2 class="modal-title">🗺️ Trajet réel — '+esc(liv)+'</h2><button class="modal-close" data-action="close-trajet">←</button></div>';
-  html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">Toutes tournées confondues, dans l\'ordre réel de validation</div>';
+  html+='<div class="modal-head"><h2 class="modal-title">🗺️ '+esc(cam.camion||'Camion')+' — '+esc(liv)+'</h2><button class="modal-close" data-action="close-trajet">←</button></div>';
+  html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">Trajet réel de ce camion'+(cam.heurePrise?' ('+esc(cam.heurePrise)+(cam.heureDepose?'–'+esc(cam.heureDepose):'')+')':'')+', dans l\'ordre réel de validation</div>';
+  if(items.length<2){
+    html+='<div style="background:var(--paper-2);border-radius:8px;padding:12px;font-size:12px;color:var(--ink-2);">🗺️ Pas encore assez de livraisons avec position enregistrée pour ce camion (il en faut au moins 2).</div>';
+    html+='</div></div>';
+    return html;
+  }
   html+='<div id="trajet-map" style="width:100%;height:280px;border-radius:10px;margin-bottom:16px;background:var(--paper-2);"></div>';
   html+='<div class="section-lbl">Ordre réel des arrêts</div>';
   items.forEach(function(d,i){
@@ -2129,20 +2171,12 @@ function renderTourneeDetailModal(){
   var html='<div class="modal-overlay" data-action="close-tournee"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</h2><button class="modal-close" data-action="close-tournee">←</button></div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
-  if(livreur){
-    var itemsAvecGeo=state.deliveries.filter(function(d){return d.livreur===livreur&&d.geoLat&&d.geoLng&&d.deliveredAt;});
-    if(itemsAvecGeo.length>=2){
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-trajet" data-livreur="'+esc(livreur)+'">🗺️ Voir le trajet réel de '+esc(livreur)+' ('+itemsAvecGeo.length+' points, toutes tournées)</button>';
-    } else {
-      var geoMsg='Le trajet réel de '+esc(livreur)+' (toutes ses tournées du jour) s\'affichera ici dès que 2 livraisons auront été validées avec la position activée.';
-      if(state._geoStatus==='denied')geoMsg='📍 La localisation est refusée sur cet appareil — le trajet ne peut pas être enregistré. Vérifiez l\'autorisation de localisation dans les réglages du navigateur.';
-      else if(state._geoStatus==='failed')geoMsg='📍 La position n\'a pas pu être récupérée sur cet appareil (signal GPS, réseau...). Le trajet ne s\'enregistre pas pour l\'instant.';
-      else if(state._geoStatus==='unsupported')geoMsg='📍 La localisation n\'est pas disponible sur ce navigateur.';
-      html+='<div style="background:var(--paper-2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--ink-2);">🗺️ '+geoMsg+'</div>';
-    }
-  }
   if(items.some(function(d){return d.blPdf;}))html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'">📚 Télécharger le PDF groupé de la tournée</button>';
   if(state.role==='responsable'){
+    var dejaPointe=items.some(function(d){return d.status!=='pending';});
+    if(livreur&&dejaPointe){
+      html+='<button class="btn-primary" style="width:100%;margin-bottom:12px;background:var(--amber);" data-action="reassign-tournee-keep-livreur" data-tournee="'+esc(tn)+'">↩️ Renvoyer chez '+esc(livreur)+' (remet toute la tournée en attente)</button>';
+    }
     var opts='<option value="">— Choisir un livreur —</option>';
     state.livreurs.forEach(function(l){var sel=livreur===l.name?' selected':'';opts+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
     html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
@@ -2186,6 +2220,7 @@ function renderResponsableApp(){
     '<button class="resp-action" data-action="open-caisses"><span class="resp-action-icon">🧺</span><span class="resp-action-lbl">Caisses</span></button>'+
     '<button class="resp-action" data-action="open-rapport"><span class="resp-action-icon">📄</span><span class="resp-action-lbl">Rapport</span></button>'+
     '<button class="resp-action" data-action="open-dashboard"><span class="resp-action-icon">📊</span><span class="resp-action-lbl">Analyse</span></button>'+
+    '<button class="resp-action" data-action="open-trajet-picker"><span class="resp-action-icon">🗺️</span><span class="resp-action-lbl">Trajet</span></button>'+
     '<button class="resp-action resp-action-quit" data-action="logout"><span class="resp-action-icon">🚪</span><span class="resp-action-lbl">Quitter</span></button>'+
   '</div>'+
   '</div>';
@@ -2206,7 +2241,7 @@ function renderResponsableApp(){
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -2449,6 +2484,20 @@ if(action==='download-tournee-pdf'){
   return;
 }
 if(action==='share-order'){var delivShare=state.deliveries.find(function(x){return x.id===id;});if(delivShare)shareOrder(delivShare);return;}
+if(action==='reassign-keep-livreur'){
+  var dR=state.deliveries.find(function(x){return x.id===id;});
+  if(dR)pointDelivery(id,{status:'pending',deliveredAt:null});
+  return;
+}
+if(action==='reassign-tournee-keep-livreur'){
+  var tnR=el.getAttribute('data-tournee');
+  persist(state.deliveries.map(function(d){
+    if(d.tourneeNum===tnR)return Object.assign({},d,{status:'pending',deliveredAt:null});
+    return d;
+  }));
+  render();
+  return;
+}
 if(action==='assign-livreur'){
   var targetD=state.deliveries.find(function(d){return d.id===id;});
   if(targetD&&targetD.status!=='pending'&&!confirm('Ce BL est déjà pointé. Le réassigner le remettra au statut "En attente", pour que le livreur le valide à nouveau. Continuer ?'))return;
@@ -2467,7 +2516,9 @@ if(action==='assign-livreur-single'){
 }
 if(action==='open-tournee'){state.selectedTourneeNum=el.getAttribute('data-tournee');render();return;}
 if(action==='close-tournee'){state.selectedTourneeNum=null;render();return;}
-if(action==='open-trajet'){state.showTrajet=el.getAttribute('data-livreur');render();return;}
+if(action==='open-trajet-picker'){state.showTrajetPicker=true;render();return;}
+if(action==='close-trajet-picker'){state.showTrajetPicker=false;render();return;}
+if(action==='open-trajet'){state.showTrajetPicker=false;state.showTrajet=el.getAttribute('data-camion-id');render();return;}
 if(action==='close-trajet'){state.showTrajet=null;render();return;}
 if(action==='assign-tournee-detail'){
   var tnA=el.getAttribute('data-tournee');
@@ -2610,7 +2661,7 @@ else if(action==='modify'){state.modifyMode=true;revertDelivery(id);}
 else if(action==='revert')revertDelivery(id);
 else if(action==='delete')deleteDelivery(id);
 });
-document.getElementById('app').addEventListener('change',function(e){if(e.target.id==='f-livreur-select'){state.selectedLivreurId=e.target.value;render();}});
+document.getElementById('app').addEventListener('change',function(e){if(e.target.id==='f-livreur-select'){state.selectedLivreurId=e.target.value;render();}if(e.target.id==='cs-filter-select'){state.caisseFilter=e.target.value;render();}});
 document.getElementById('app').addEventListener('input',function(e){
   if(e.target.classList.contains('time-txt')){
     var pos=e.target.selectionStart;var raw=e.target.value.replace(/[^0-9]/g,'').slice(0,4);var fmt=raw.length>=3?raw.slice(0,2)+':'+raw.slice(2,4):raw;e.target.value=fmt;
