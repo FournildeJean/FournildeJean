@@ -735,8 +735,8 @@ function initTrajetMap(){
     return;
   }
   if(typeof L==='undefined')return;
-  var tn=state.showTrajet;
-  var items=state.deliveries.filter(function(d){return d.tourneeNum===tn&&d.geoLat&&d.geoLng&&d.deliveredAt;});
+  var liv=state.showTrajet;
+  var items=state.deliveries.filter(function(d){return d.livreur===liv&&d.geoLat&&d.geoLng&&d.deliveredAt;});
   items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
   if(!items.length)return;
   if(trajetMapInstance){trajetMapInstance.remove();trajetMapInstance=null;}
@@ -870,6 +870,11 @@ function handleQrScanResult(text){
     return;
   }
   if(target&&target.mode==='charge'){
+    if(caisse.statut==='charge'){
+      render();
+      alert('⛔ Caisse déjà chargée. '+caisseLabel(caisse)+' est déjà chargée sur la tournée '+caisse.tourneeNum+' et n\'a pas encore été retournée. Elle doit d\'abord revenir en stock avant de pouvoir être rechargée.');
+      return;
+    }
     marquerCaisseChargee(caisse.id,target.tourneeNum);
     render();
     alert(caisseLabel(caisse)+' chargée pour la tournée '+target.tourneeNum+'.');
@@ -1054,6 +1059,9 @@ function exportExcel(dateFrom, dateTo){
     d.setDate(d.getDate()+1);
   }
   var rows3=[['Identification','Categorie','Statut','Tournee','Date de chargement','Jours depuis chargement']];
+  if(state._caissesSyncError){
+    rows3.push(['⚠️ ATTENTION','La synchronisation des caisses a echoue sur cet appareil','Les caisses chargees sur d\'autres appareils peuvent manquer ci-dessous','','','']);
+  }
   var caissesNonRetournees=state.caisses.filter(function(c){return c.statut==='charge';}).sort(function(a,b){
     if(a.taille!==b.taille)return a.taille<b.taille?-1:1;
     return a.numero-b.numero;
@@ -1409,7 +1417,7 @@ function assignLivreur(id,livreurId,wholeTournee){
   var tourneeNum=(wholeTournee&&target)?target.tourneeNum:'';
   persist(state.deliveries.map(function(d){
     if(d.id===id||(tourneeNum&&d.tourneeNum===tourneeNum)){
-      return Object.assign({},d,{livreur:liv?liv.name:'',livreurPhone:liv?liv.phone:''});
+      return Object.assign({},d,{livreur:liv?liv.name:'',livreurPhone:liv?liv.phone:'',status:'pending',deliveredAt:null});
     }
     return d;
   }));
@@ -2071,23 +2079,36 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       if(livePhotos.length)html+='<div style="margin-top:10px;padding:8px 12px;background:#FEF4E6;border:1px solid #F0D9B5;border-radius:8px;font-size:12px;color:#8A5A10;">⚠️ Photo(s) enregistree(s), mais le pointage n\'est pas encore valide. Cliquez sur "Valider le pointage" pour confirmer le statut.</div>';
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">← Retour</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
-}else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
+}else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';
+  if(state.role==='responsable'){
+    var optsR='<option value="">— Choisir un livreur —</option>';
+    state.livreurs.forEach(function(l){var sel=d.livreur===l.name?' selected':'';optsR+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
+    html+='<div class="field"><div class="field-label">👤 Réassigner (remet ce BL en attente)</div><select id="f-livreur-select">'+optsR+'</select></div>';
+    if(d.tourneeNum){
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="assign-livreur-tournee" data-id="'+d.id+'">👤 Réassigner toute la tournée '+esc(d.tourneeNum)+'</button>';
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur-single" data-id="'+d.id+'">👤 Réassigner ce BL uniquement</button>';
+    } else {
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur" data-id="'+d.id+'">👤 Réassigner ce livreur</button>';
+    }
+  }
+  if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
   if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-outline" data-action="gen-invoice" data-id="'+d.id+'">🧾 Facture</button>';html+='<button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
 function renderTrajetModal(){
   if(!state.showTrajet)return'';
-  var tn=state.showTrajet;
-  var items=state.deliveries.filter(function(d){return d.tourneeNum===tn&&d.geoLat&&d.geoLng&&d.deliveredAt;});
+  var liv=state.showTrajet;
+  var items=state.deliveries.filter(function(d){return d.livreur===liv&&d.geoLat&&d.geoLng&&d.deliveredAt;});
   items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
   var html='<div class="modal-overlay" data-action="close-trajet"><div class="modal-sheet" data-action="noop">';
-  html+='<div class="modal-head"><h2 class="modal-title">🗺️ Trajet réel — Tournée '+esc(tn)+'</h2><button class="modal-close" data-action="close-trajet">←</button></div>';
+  html+='<div class="modal-head"><h2 class="modal-title">🗺️ Trajet réel — '+esc(liv)+'</h2><button class="modal-close" data-action="close-trajet">←</button></div>';
+  html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">Toutes tournées confondues, dans l\'ordre réel de validation</div>';
   html+='<div id="trajet-map" style="width:100%;height:280px;border-radius:10px;margin-bottom:16px;background:var(--paper-2);"></div>';
   html+='<div class="section-lbl">Ordre réel des arrêts</div>';
   items.forEach(function(d,i){
     var heure=new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
     html+='<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule);">'+
       '<div style="width:26px;height:26px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-right:10px;flex-shrink:0;">'+(i+1)+'</div>'+
-      '<div style="flex:1;"><div style="font-size:13px;font-weight:700;color:var(--ink);">'+esc(d.client)+'</div><div style="font-size:11px;color:var(--ink-3);">'+heure+'</div></div>'+
+      '<div style="flex:1;"><div style="font-size:13px;font-weight:700;color:var(--ink);">'+esc(d.client)+'</div><div style="font-size:11px;color:var(--ink-3);">'+heure+(d.tourneeNum?' · Tournée '+esc(d.tourneeNum):'')+'</div></div>'+
     '</div>';
     if(i<items.length-1){
       var deltaMin=Math.round((new Date(items[i+1].deliveredAt)-new Date(d.deliveredAt))/60000);
@@ -2108,15 +2129,17 @@ function renderTourneeDetailModal(){
   var html='<div class="modal-overlay" data-action="close-tournee"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+'</h2><button class="modal-close" data-action="close-tournee">←</button></div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
-  var itemsAvecGeo=items.filter(function(d){return d.geoLat&&d.geoLng&&d.deliveredAt;});
-  if(itemsAvecGeo.length>=2){
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-trajet" data-tournee="'+esc(tn)+'">🗺️ Voir le trajet réel ('+itemsAvecGeo.length+' points)</button>';
-  } else {
-    var geoMsg='Le trajet réel s\'affichera ici dès que 2 livraisons de cette tournée auront été validées avec la position activée.';
-    if(state._geoStatus==='denied')geoMsg='📍 La localisation est refusée sur cet appareil — le trajet ne peut pas être enregistré. Vérifiez l\'autorisation de localisation dans les réglages du navigateur.';
-    else if(state._geoStatus==='failed')geoMsg='📍 La position n\'a pas pu être récupérée sur cet appareil (signal GPS, réseau...). Le trajet ne s\'enregistre pas pour l\'instant.';
-    else if(state._geoStatus==='unsupported')geoMsg='📍 La localisation n\'est pas disponible sur ce navigateur.';
-    html+='<div style="background:var(--paper-2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--ink-2);">🗺️ '+geoMsg+'</div>';
+  if(livreur){
+    var itemsAvecGeo=state.deliveries.filter(function(d){return d.livreur===livreur&&d.geoLat&&d.geoLng&&d.deliveredAt;});
+    if(itemsAvecGeo.length>=2){
+      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="open-trajet" data-livreur="'+esc(livreur)+'">🗺️ Voir le trajet réel de '+esc(livreur)+' ('+itemsAvecGeo.length+' points, toutes tournées)</button>';
+    } else {
+      var geoMsg='Le trajet réel de '+esc(livreur)+' (toutes ses tournées du jour) s\'affichera ici dès que 2 livraisons auront été validées avec la position activée.';
+      if(state._geoStatus==='denied')geoMsg='📍 La localisation est refusée sur cet appareil — le trajet ne peut pas être enregistré. Vérifiez l\'autorisation de localisation dans les réglages du navigateur.';
+      else if(state._geoStatus==='failed')geoMsg='📍 La position n\'a pas pu être récupérée sur cet appareil (signal GPS, réseau...). Le trajet ne s\'enregistre pas pour l\'instant.';
+      else if(state._geoStatus==='unsupported')geoMsg='📍 La localisation n\'est pas disponible sur ce navigateur.';
+      html+='<div style="background:var(--paper-2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--ink-2);">🗺️ '+geoMsg+'</div>';
+    }
   }
   if(items.some(function(d){return d.blPdf;}))html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'">📚 Télécharger le PDF groupé de la tournée</button>';
   if(state.role==='responsable'){
@@ -2124,7 +2147,7 @@ function renderTourneeDetailModal(){
     state.livreurs.forEach(function(l){var sel=livreur===l.name?' selected':'';opts+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
     html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
     html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
-    html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;">Ouvrez un BL ci-dessous pour le valider ou le modifier individuellement.</div>';
+    html+='<div style="font-size:11px;color:var(--ink-3);margin:-10px 0 16px;">Ouvrez un BL ci-dessous pour le consulter ou le réassigner individuellement.</div>';
   } else {
     html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;" data-action="open-scanner" data-mode="charge" data-tournee="'+esc(tn)+'">🧺 Scanner les caisses chargées</button>';
     if(allDelivered){
@@ -2426,19 +2449,34 @@ if(action==='download-tournee-pdf'){
   return;
 }
 if(action==='share-order'){var delivShare=state.deliveries.find(function(x){return x.id===id;});if(delivShare)shareOrder(delivShare);return;}
-if(action==='assign-livreur'){assignLivreur(id,state.selectedLivreurId);return;}
-if(action==='assign-livreur-tournee'){assignLivreur(id,state.selectedLivreurId,true);return;}
-if(action==='assign-livreur-single'){assignLivreur(id,state.selectedLivreurId,false);return;}
+if(action==='assign-livreur'){
+  var targetD=state.deliveries.find(function(d){return d.id===id;});
+  if(targetD&&targetD.status!=='pending'&&!confirm('Ce BL est déjà pointé. Le réassigner le remettra au statut "En attente", pour que le livreur le valide à nouveau. Continuer ?'))return;
+  assignLivreur(id,state.selectedLivreurId);return;
+}
+if(action==='assign-livreur-tournee'){
+  var targetT=state.deliveries.find(function(d){return d.id===id;});
+  var dejaLivreT=targetT&&state.deliveries.some(function(d){return d.tourneeNum===targetT.tourneeNum&&d.status!=='pending';});
+  if(dejaLivreT&&!confirm('Cette tournée contient des BL déjà pointés. Les réassigner les remettra au statut "En attente". Continuer ?'))return;
+  assignLivreur(id,state.selectedLivreurId,true);return;
+}
+if(action==='assign-livreur-single'){
+  var targetS=state.deliveries.find(function(d){return d.id===id;});
+  if(targetS&&targetS.status!=='pending'&&!confirm('Ce BL est déjà pointé. Le réassigner le remettra au statut "En attente". Continuer ?'))return;
+  assignLivreur(id,state.selectedLivreurId,false);return;
+}
 if(action==='open-tournee'){state.selectedTourneeNum=el.getAttribute('data-tournee');render();return;}
 if(action==='close-tournee'){state.selectedTourneeNum=null;render();return;}
-if(action==='open-trajet'){state.showTrajet=el.getAttribute('data-tournee');render();return;}
+if(action==='open-trajet'){state.showTrajet=el.getAttribute('data-livreur');render();return;}
 if(action==='close-trajet'){state.showTrajet=null;render();return;}
 if(action==='assign-tournee-detail'){
   var tnA=el.getAttribute('data-tournee');
   var livSelId=document.getElementById('tn-livreur-select')?document.getElementById('tn-livreur-select').value:'';
   var livA=getLivreurById(livSelId);
+  var dejaLivreA=state.deliveries.some(function(d){return d.tourneeNum===tnA&&d.status!=='pending';});
+  if(dejaLivreA&&!confirm('Cette tournée contient des BL déjà pointés. Les réassigner remettra ces BL au statut "En attente", pour que le livreur les valide à nouveau. Continuer ?'))return;
   persist(state.deliveries.map(function(d){
-    if(d.tourneeNum===tnA)return Object.assign({},d,{livreur:livA?livA.name:'',livreurPhone:livA?livA.phone:''});
+    if(d.tourneeNum===tnA)return Object.assign({},d,{livreur:livA?livA.name:'',livreurPhone:livA?livA.phone:'',status:'pending',deliveredAt:null});
     return d;
   }));
   render();
