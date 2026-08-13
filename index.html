@@ -21,7 +21,6 @@
 // ── FIREBASE CONFIG ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, where, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9UvDKVYcq-KU-AjN4dDANK-c11Z72JSs",
@@ -34,31 +33,6 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
-
-// ── NOTIFICATIONS PUSH (Firebase Cloud Messaging) ──
-const FCM_VAPID_KEY = "BGNXxLqMM3AbpEdOLrT9yYW2GdV4VkSKpd97q0ctozc6U9NJWjWGhDDyevsfq_E4Y9xcpkhLlOZFe6UlVC5GWzo";
-async function activerNotifications() {
-  try {
-    if (!("Notification" in window)) { alert("Les notifications ne sont pas supportées par ce navigateur."); return false; }
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") { alert("Notifications refusées. Vous pouvez les autoriser plus tard dans les réglages du navigateur."); return false; }
-    const registration = await navigator.serviceWorker.register('firebase-messaging-sw.js');
-    const messaging = getMessaging(fbApp);
-    const token = await getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: registration });
-    if (token) {
-      await fbSave('fdj-fcm-tokens', token, { token: token, role: 'responsable', updatedAt: new Date().toISOString() });
-      localStorage.setItem('fdj-fcm-active', '1');
-      return true;
-    }
-    return false;
-  } catch (e) {
-    console.error('Erreur activation notifications:', e);
-    alert("Impossible d'activer les notifications : " + e.message);
-    return false;
-  }
-}
-window.activerNotifications = activerNotifications;
-window.fcmDejaActif = function(){ return localStorage.getItem('fdj-fcm-active') === '1'; };
 
 // ── HELPERS FIREBASE ──
 async function fbSave(collection_name, id, data) {
@@ -115,6 +89,13 @@ window._lastCaissesData = null;
 fbListenCollection('fdj-caisses', function(data) {
   window._lastCaissesData = data;
   if(typeof window.onFbCaisses === 'function') window.onFbCaisses(data);
+});
+
+// Configuration partagee (ex: numero WhatsApp d'alerte)
+window._lastConfigData = null;
+fbListenCollection('fdj-config', function(data) {
+  window._lastConfigData = data;
+  if(typeof window.onFbConfig === 'function') window.onFbConfig(data);
 });
 
 // Livraisons du jour courant
@@ -504,6 +485,36 @@ function initFbCaisses(){
   if(window._lastCaissesData) window.onFbCaisses(window._lastCaissesData);
 }
 initFbCaisses();
+function loadWaContacts(){try{var r=localStorage.getItem('fdj-wa-contacts');return r?JSON.parse(r):[];}catch(e){return[];}}
+function initFbWaContacts(){
+  if(!window.fbReady){setTimeout(initFbWaContacts,500);return;}
+  window.onFbConfig=function(data){
+    var list=Object.values(data||{});
+    if(list.length>0){
+      state.waContacts=list;
+      try{localStorage.setItem('fdj-wa-contacts',JSON.stringify(list));}catch(e){}
+      render();
+    }
+  };
+  if(window._lastConfigData) window.onFbConfig(window._lastConfigData);
+}
+initFbWaContacts();
+function saveWaContact(nom,numero){
+  var contact={id:genId(),nom:nom.trim(),numero:numero.replace(/[^0-9]/g,'')};
+  state.waContacts=state.waContacts.concat([contact]);
+  try{localStorage.setItem('fdj-wa-contacts',JSON.stringify(state.waContacts));}catch(e){}
+  function doSave(){
+    if(window.fbReady){window.fbSave('fdj-config',contact.id,contact);}
+    else setTimeout(doSave,500);
+  }
+  doSave();
+}
+function deleteWaContact(id){
+  state.waContacts=state.waContacts.filter(function(c){return c.id!==id;});
+  try{localStorage.setItem('fdj-wa-contacts',JSON.stringify(state.waContacts));}catch(e){}
+  if(window.fbReady&&window.fbDelete){window.fbDelete('fdj-config',id);}
+}
+
 function saveCaisses(l){
   try{localStorage.setItem('fdj-caisses-list',JSON.stringify(l));}catch(e){}
   function doFbSaveCai(){
@@ -596,7 +607,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:''};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -1539,6 +1550,32 @@ function assignLivreur(id,livreurId,wholeTournee){
   state.selectedId=null;
   render();
 }
+function construireMessageAlerte(d){
+  var libelles={absent:'Absent',refused:'Refusé',incident:'Incident'};
+  var libelle=libelles[d.status]||d.status;
+  var heure=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  var photos=getDeliveryPhotos(d);
+  var lignes=[
+    '⚠️ Vous avez une notification importante sur le BL n° '+(d.blNum||'—'),
+    'Client : '+d.client+' — '+libelle,
+    d.tourneeNum?('Tournée '+d.tourneeNum):'',
+    d.livreur?('Livreur : '+d.livreur):'',
+    'Heure : '+heure,
+    d.note?('Détail : '+d.note):'',
+    photos.length?'📷 Voir la photo du constat sur le BL dans l\'application':''
+  ].filter(Boolean);
+  return lignes.join('\n');
+}
+function ouvrirAlerteWhatsApp(d){
+  if(state.waContacts&&state.waContacts.length>0){
+    state.showWaPicker=true;
+    state.waPickerTarget=d;
+    render();
+    return;
+  }
+  var texte=construireMessageAlerte(d);
+  window.open('https://wa.me/?text='+encodeURIComponent(texte),'_blank');
+}
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
 function captureGeoLocationAsync(deliveryIds){
   if(!navigator.geolocation){
@@ -2052,7 +2089,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+=renderTimeline(true)+'</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal();
   return html;
 }
 
@@ -2171,6 +2208,19 @@ function renderQrCardModal(){
     '<button class="btn-outline" style="width:100%;" data-action="download-qr-code" data-id="'+c.id+'">💾 Télécharger l\'image</button>'+
   '</div></div>';
 }
+function renderWaPickerModal(){
+  if(!state.showWaPicker||!state.waPickerTarget)return'';
+  var d=state.waPickerTarget;
+  var html='<div class="modal-overlay" data-action="close-wa-picker"><div class="modal-sheet" data-action="noop">';
+  html+='<div class="modal-head"><h2 class="modal-title">📱 Envoyer l\'alerte à...</h2><button class="modal-close" data-action="close-wa-picker">←</button></div>';
+  html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:14px;">BL n° '+esc(d.blNum||'—')+' — '+esc(d.client)+'</div>';
+  state.waContacts.forEach(function(c){
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;text-align:left;" data-action="send-wa-to-contact" data-numero="'+esc(c.numero)+'">💬 '+esc(c.nom)+' <span style="color:var(--ink-3);font-weight:400;">('+esc(c.numero)+')</span></button>';
+  });
+  html+='<button class="btn-outline" style="width:100%;margin-top:4px;" data-action="send-wa-other">📋 Autre destinataire (choisir dans WhatsApp)</button>';
+  html+='</div></div>';
+  return html;
+}
 function renderScannerModal(){
   if(!state.showScanner)return'';
   var mode=state.scanTarget?state.scanTarget.mode:'';
@@ -2189,7 +2239,13 @@ function renderScannerModal(){
     '</div>'+
   '</div>';
 }
-function renderLivreursModal(){if(!state.showLivreurs)return'';var livItems=state.livreurs.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun livreur enregistré.</p>':'<div class="livreur-list">'+state.livreurs.map(function(l){return'<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+'</div><div style="display:flex;gap:6px;"><button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div></div>';}).join('')+'</div>';return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div></div></div>';}
+function renderLivreursModal(){if(!state.showLivreurs)return'';var livItems=state.livreurs.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun livreur enregistré.</p>':'<div class="livreur-list">'+state.livreurs.map(function(l){return'<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+'</div><div style="display:flex;gap:6px;"><button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div></div>';}).join('')+'</div>';
+  var waItems=state.waContacts.length===0?'<p style="color:var(--ink-3);font-size:12px;text-align:center;padding:8px 0;">Aucun contact d\'alerte enregistré. Le livreur choisira le destinataire à chaque fois via WhatsApp.</p>':'<div class="livreur-list">'+state.waContacts.map(function(c){return'<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(c.nom)+'</div><span class="livreur-phone">📱 '+esc(c.numero)+'</span></div><div style="display:flex;gap:6px;"><button class="livreur-del" data-action="delete-wa-contact" data-id="'+c.id+'">🗑</button></div></div>';}).join('')+'</div>';
+  var waSection='<div class="divider"></div><div class="section-lbl">📱 Contacts d\'alerte WhatsApp (Absent / Refusé / Incident)</div>'+
+    '<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Personnes ou groupes à proposer au livreur quand il signale un problème.</p>'+
+    waItems+
+    '<div class="add-row"><input id="wa-nom" placeholder="Nom (ex: Groupe Alertes)" type="text" style="max-width:140px;"/><input id="wa-numero" placeholder="Numéro (ex: 33612345678)" type="tel"/><button class="btn-add-lv" data-action="submit-add-wa-contact">+</button></div>';
+  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+waSection+'</div></div>';}
 function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';html+='<div class="divider"></div>';
   var livePhotos=getDeliveryPhotos(d);
   if(livePhotos.length)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">🖼️ Photo constat ('+livePhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+livePhotos.map(function(p,pi){
@@ -2384,9 +2440,6 @@ function renderResponsableApp(){
   '</div>';
   html+='<div class="stats-strip">'+statCell('Total',total)+statCell('Livrees',delivered)+statCell('Attente',pending)+statCell('Incidents',issues)+'</div>';
   html+='<button class="btn-outline" style="width:calc(100% - 32px);margin:12px 16px;background:var(--amber-l,#FEF4E6);border-color:var(--amber);color:var(--amber-d,#8A5A10);font-weight:700;" data-action="export-commande-globale">📦 Générer la commande globale (Excel)</button>';
-  if(typeof window.fcmDejaActif==='function'&&!window.fcmDejaActif()){
-    html+='<button class="btn-outline" style="width:calc(100% - 32px);margin:0 16px 12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="activer-notifs">🔔 Activer les notifications (Absent / Refusé / Incident)</button>';
-  }
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
   html+=renderAddModal()+renderLivreursModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal();
@@ -2538,10 +2591,6 @@ if(action==='open-caisses'){state.showCaisses=true;render();return;}
 if(action==='close-caisses'){state.showCaisses=false;render();return;}
 if(action==='export-caisses-non-retournees'){exportCaissesNonRetournees();return;}
 if(action==='export-commande-globale'){exportCommandeGlobale();return;}
-if(action==='activer-notifs'){
-  window.activerNotifications().then(function(ok){ if(ok){ alert('✅ Notifications activées ! Vous serez alerté même téléphone verrouillé en cas d\'Absent, Refusé ou Incident.'); render(); } });
-  return;
-}
 if(action==='submit-create-caisses'){
   var csTaille=document.getElementById('cs-taille').value.trim();
   var csQte=parseInt(document.getElementById('cs-qte').value,10);
@@ -2633,6 +2682,34 @@ if(action==='download-qr-code'){
 }
 if(action==='close-livreurs'){state.showLivreurs=false;render();return;}
 if(action==='submit-add-livreur'){var nm=document.getElementById('nl-name').value.trim();var ph=document.getElementById('nl-phone').value.trim();if(!nm)return;addLivreur(nm,ph);render();return;}
+if(action==='submit-add-wa-contact'){
+  var waNomEl=document.getElementById('wa-nom');
+  var waNumEl=document.getElementById('wa-numero');
+  var waNom=waNomEl?waNomEl.value.trim():'';
+  var waNumBrut=waNumEl?waNumEl.value.trim():'';
+  if(!waNom||!waNumBrut){alert('Indiquez un nom et un numéro.');return;}
+  saveWaContact(waNom,waNumBrut);
+  render();
+  return;
+}
+if(action==='delete-wa-contact'){
+  if(confirm('Supprimer ce contact d\'alerte ?')){deleteWaContact(id);render();}
+  return;
+}
+if(action==='close-wa-picker'){state.showWaPicker=false;state.waPickerTarget=null;render();return;}
+if(action==='send-wa-to-contact'){
+  var numeroChoisi=el.getAttribute('data-numero');
+  var texteMsg=construireMessageAlerte(state.waPickerTarget);
+  window.open('https://wa.me/'+numeroChoisi+'?text='+encodeURIComponent(texteMsg),'_blank');
+  state.showWaPicker=false;state.waPickerTarget=null;render();
+  return;
+}
+if(action==='send-wa-other'){
+  var texteMsg2=construireMessageAlerte(state.waPickerTarget);
+  window.open('https://wa.me/?text='+encodeURIComponent(texteMsg2),'_blank');
+  state.showWaPicker=false;state.waPickerTarget=null;render();
+  return;
+}
 
 if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
   deleteLivreur(id);
@@ -2816,8 +2893,13 @@ else if(action==='submit-point'){
   var selId=state.role==='livreur'?state.livreurId:state.selectedLivreurId;
   var liv=getLivreurById(selId);
   var note=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
-  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:liv?liv.name:(state.role==='livreur'?state.livreurName:''),livreurPhone:liv?liv.phone:'',note:note});
+  var deliveryAvant=state.deliveries.find(function(x){return x.id===id;});
+  var livreurNom=liv?liv.name:(state.role==='livreur'?state.livreurName:'');
+  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note});
   captureGeoLocationAsync(id);
+  if(['absent','refused','incident'].indexOf(state.pendingOutcome)!==-1&&deliveryAvant){
+    ouvrirAlerteWhatsApp(Object.assign({},deliveryAvant,{status:state.pendingOutcome,livreur:livreurNom,note:note}));
+  }
   state.pendingNote='';
   if(state.role==='livreur'){state.selectedId=null;render();}
   state.modifyMode=false;
