@@ -2076,6 +2076,11 @@ function renderCaissesModal(){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="print-all-qr-codes">🖨️ Imprimer tous les QR codes ('+state.caisses.length+')</button>';
   }
   html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;'+(selMode?'background:var(--red-s);border-color:var(--red);color:var(--red);':'')+'" data-action="toggle-caisse-sel-mode">'+(selMode?'✕ Annuler la sélection':'☑️ Sélectionner (imprimer ou supprimer)')+'</button>';
+  if(selMode){
+    var visibles=enStock.concat(chargees);
+    var toutesCochees=visibles.length>0&&visibles.every(function(c){return state.selectedCaisses&&state.selectedCaisses[c.id];});
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="toggle-select-all-caisses">'+(toutesCochees?'☐ Tout désélectionner':'☑️ Tout sélectionner'+(filtre?' ('+esc(filtre)+')':''))+' ('+visibles.length+')</button>';
+  }
   if(selMode&&nbSel>0){
     html+='<div style="display:flex;gap:8px;margin-bottom:16px;">'+
       '<button class="btn-outline" style="flex:1;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="print-selected-qr-codes">🖨️ Imprimer ('+nbSel+')</button>'+
@@ -2523,6 +2528,18 @@ if(action==='toggle-caisse-sel-mode'){
 if(action==='toggle-select-caisse'){
   if(state.selectedCaisses[id])delete state.selectedCaisses[id];
   else state.selectedCaisses[id]=true;
+  render();
+  return;
+}
+if(action==='toggle-select-all-caisses'){
+  var filtreSel=state.caisseFilter||'';
+  var visiblesSel=state.caisses.filter(function(c){return(c.statut==='stock'||c.statut==='charge')&&(!filtreSel||c.taille===filtreSel);});
+  var toutesCocheesSel=visiblesSel.length>0&&visiblesSel.every(function(c){return state.selectedCaisses&&state.selectedCaisses[c.id];});
+  if(toutesCocheesSel){
+    visiblesSel.forEach(function(c){delete state.selectedCaisses[c.id];});
+  } else {
+    visiblesSel.forEach(function(c){state.selectedCaisses[c.id]=true;});
+  }
   render();
   return;
 }
