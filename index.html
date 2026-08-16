@@ -1378,25 +1378,32 @@ function extractProducts(text,tourneeTitleToSkip){
   return products;
 }
 function extractConsigne(text,tourneeTitleToSkip){
-  // Capture les lignes SANS quantite dans la zone produits (ex: "LIVRAISON MONTROGNON ENTRE 10H00 ET 11H00")
-  // pour ne pas les perdre : ce sont des consignes/instructions, distinctes des produits eux-memes.
+  // Ne capture que la (les) derniere(s) ligne(s) sans quantite, situees APRES le dernier produit
+  // et AVANT le pied de page (IBAN, mentions bancaires...) : c'est la vraie "consigne", a l'interieur
+  // du cadre du tableau, jamais ce qui est en dehors (pied de page, mentions legales).
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire|t[eé]l|mob|fax|gsm|portable|n[°o]\s*bl)/i;
   var looksLikePhone=/^[\d\s.\-]+$/;
-  var premierProduitVu=false;
-  var consignes=[];
+  var looksLikeFooter=/iban|\bbic\b|relev[eé]\s*d.identit[eé]|rib\b|siret|siren|tva\s*intra|capital\s*social/i;
+  var dernierIndexProduit=-1;
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
     if(tourneeTitleToSkip&&l===tourneeTitleToSkip)continue;
     var mSameLine=!looksLikeInstruction.test(l)?l.match(/^(.{3,})\s+(\d{1,4})\s*$/):null;
     var estProduitMemeLigne=!!(mSameLine&&parseInt(mSameLine[2])>0&&!skipProd.test(mSameLine[1].trim())&&!looksLikePhone.test(mSameLine[1].trim())&&mSameLine[1].trim().length>2);
     var estProduitLigneSuivante=i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&!looksLikeInstruction.test(l);
-    if(estProduitMemeLigne||estProduitLigneSuivante){premierProduitVu=true;if(estProduitLigneSuivante)i++;continue;}
-    if(!premierProduitVu)continue; // pas encore dans la zone produits (en-tetes, adresse...)
-    if(/^\d{1,4}$/.test(l))continue; // une quantite isolee deja rattachee a la ligne precedente
-    if(skipProd.test(l)||looksLikePhone.test(l))continue;
-    if(l.length<4)continue;
-    consignes.push(l);
+    if(estProduitMemeLigne){dernierIndexProduit=i;continue;}
+    if(estProduitLigneSuivante){dernierIndexProduit=i+1;continue;}
+  }
+  if(dernierIndexProduit===-1)return''; // aucun produit trouve : pas de zone tableau identifiable
+  var consignes=[];
+  for(var j=dernierIndexProduit+1;j<lines.length;j++){
+    var lj=lines[j];
+    if(looksLikeFooter.test(lj))break; // on sort du cadre du tableau : on s'arrete net
+    if(/^\d{1,4}$/.test(lj))continue;
+    if(skipProd.test(lj)||looksLikePhone.test(lj))continue;
+    if(lj.length<4)continue;
+    consignes.push(lj);
   }
   return consignes.join(' ');
 }
