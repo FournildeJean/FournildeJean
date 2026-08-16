@@ -799,25 +799,13 @@ function initQrFeatures(){
   if(qrTarget && state.showQrCard && typeof QRCode!=='undefined'){
     qrTarget.innerHTML='';
     var qrCaisse=state.caisses.find(function(x){return x.id===state.showQrCard;});
-    var label=qrCaisse?(qrCaisse.taille+' '+qrCaisse.numero):'';
-    var qrTemp=document.createElement('div');
-    qrTemp.style.display='none';
-    document.body.appendChild(qrTemp);
-    new QRCode(qrTemp,{text:'CAISSE:'+state.showQrCard,width:220,height:220});
-    var qrSrc=qrTemp.querySelector('canvas')||qrTemp.querySelector('img');
-    var composite=document.createElement('canvas');
-    composite.width=240;
-    composite.height=270;
-    var cctx=composite.getContext('2d');
-    cctx.fillStyle='#ffffff';
-    cctx.fillRect(0,0,composite.width,composite.height);
-    if(qrSrc)cctx.drawImage(qrSrc,10,10,220,220);
-    cctx.fillStyle='#000000';
-    cctx.font='bold 22px sans-serif';
-    cctx.textAlign='center';
-    cctx.fillText(label,composite.width/2,258);
-    qrTarget.appendChild(composite);
-    document.body.removeChild(qrTemp);
+    if(qrCaisse){
+      var img=document.createElement('img');
+      img.src=generateCaisseQrDataUrl(qrCaisse);
+      img.style.width='240px';
+      img.style.height='280px';
+      qrTarget.appendChild(img);
+    }
   }
   var video=document.getElementById('qr-video');
   if(video && state.showScanner && !qrStream){
@@ -1058,8 +1046,26 @@ function saveCamionFields(){
   if(Object.keys(updates).length)saveCamions(state.date,state.camions);
 }
 
+function couleurPourCategorie(taille){
+  var t=(taille||'').trim().toLowerCase();
+  var table={
+    'verte':'#2A7A3A','vert':'#2A7A3A',
+    'jaune':'#D9A61E',
+    'rouge':'#C8281A',
+    'bleue':'#0A6878','bleu':'#0A6878',
+    'orange':'#C87010',
+    'violette':'#7A3A9A','violet':'#7A3A9A',
+    'noire':'#1A1208','noir':'#1A1208',
+    'blanche':'#8A7A68','blanc':'#8A7A68',
+    'grise':'#8A7A68','gris':'#8A7A68',
+    'rose':'#D66A8C',
+    'marron':'#6E3C08'
+  };
+  return table[t]||'#8A7A68';
+}
 function generateCaisseQrDataUrl(caisse){
   var label=caisse.taille+' '+caisse.numero;
+  var couleur=couleurPourCategorie(caisse.taille);
   var qrTemp=document.createElement('div');
   qrTemp.style.display='none';
   document.body.appendChild(qrTemp);
@@ -1067,15 +1073,18 @@ function generateCaisseQrDataUrl(caisse){
   var qrSrc=qrTemp.querySelector('canvas')||qrTemp.querySelector('img');
   var composite=document.createElement('canvas');
   composite.width=240;
-  composite.height=270;
+  composite.height=280;
   var cctx=composite.getContext('2d');
   cctx.fillStyle='#ffffff';
   cctx.fillRect(0,0,composite.width,composite.height);
-  if(qrSrc)cctx.drawImage(qrSrc,10,10,220,220);
-  cctx.fillStyle='#000000';
+  cctx.strokeStyle=couleur;
+  cctx.lineWidth=8;
+  cctx.strokeRect(4,4,composite.width-8,composite.height-8);
+  if(qrSrc)cctx.drawImage(qrSrc,10,14,220,220);
+  cctx.fillStyle=couleur;
   cctx.font='bold 22px sans-serif';
   cctx.textAlign='center';
-  cctx.fillText(label,composite.width/2,258);
+  cctx.fillText(label,composite.width/2,264);
   document.body.removeChild(qrTemp);
   return composite.toDataURL('image/png');
 }
@@ -1342,13 +1351,14 @@ function extractClientName(text){
   }
   return '';
 }
-function extractProducts(text){
+function extractProducts(text,tourneeTitleToSkip){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var products=[];
-  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire|t[eé]l|mob|fax|gsm|portable)/i;
+  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire|t[eé]l|mob|fax|gsm|portable|n[°o]\s*bl)/i;
   var looksLikePhone=/^[\d\s.\-]+$/; // une "designation" qui n'est que des chiffres/espaces = un numero de telephone, pas un produit
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
+    if(tourneeTitleToSkip&&l===tourneeTitleToSkip)continue; // le titre de tournee (ex: "CLERMONT 1") n'est jamais un produit
     // Quantite sur la meme ligne : "Boule T80 65"
     var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
     if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2){
@@ -1363,6 +1373,29 @@ function extractProducts(text){
     }
   }
   return products;
+}
+function extractConsigne(text,tourneeTitleToSkip){
+  // Capture les lignes SANS quantite dans la zone produits (ex: "LIVRAISON MONTROGNON ENTRE 10H00 ET 11H00")
+  // pour ne pas les perdre : ce sont des consignes/instructions, distinctes des produits eux-memes.
+  var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  var skipProd=/^(page|le\s*:|code|d[eé]sign|quantit|standard|facturation|tourn[eé]e|evenem|bon de|mariage|bapteme|anniversaire|t[eé]l|mob|fax|gsm|portable|n[°o]\s*bl)/i;
+  var looksLikePhone=/^[\d\s.\-]+$/;
+  var premierProduitVu=false;
+  var consignes=[];
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i];
+    if(tourneeTitleToSkip&&l===tourneeTitleToSkip)continue;
+    var mSameLine=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
+    var estProduitMemeLigne=!!(mSameLine&&parseInt(mSameLine[2])>0&&!skipProd.test(mSameLine[1].trim())&&!looksLikePhone.test(mSameLine[1].trim())&&mSameLine[1].trim().length>2);
+    var estProduitLigneSuivante=i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l);
+    if(estProduitMemeLigne||estProduitLigneSuivante){premierProduitVu=true;if(estProduitLigneSuivante)i++;continue;}
+    if(!premierProduitVu)continue; // pas encore dans la zone produits (en-tetes, adresse...)
+    if(/^\d{1,4}$/.test(l))continue; // une quantite isolee deja rattachee a la ligne precedente
+    if(skipProd.test(l)||looksLikePhone.test(l))continue;
+    if(l.length<4)continue;
+    consignes.push(l);
+  }
+  return consignes.join(' ');
 }
 function extractTourneeInfo(text){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
@@ -1407,7 +1440,8 @@ function importBlPdfsBulk(fileList){
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
         var clientName=extractClientName(text);
-        var products=extractProducts(text);
+        var products=extractProducts(text,tourneeInfo.tourneeTitle);
+        var consigne=extractConsigne(text,tourneeInfo.tourneeTitle);
         var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
         if(existing){
           var proceed=confirm('Le BL n°'+blNum+' existe deja pour cette date ("'+existing.client+'").\n\nOK = importer quand meme (creer un doublon)\nAnnuler = garder seulement celui qui existe');
@@ -1419,7 +1453,7 @@ function importBlPdfsBulk(fileList){
         var refParts=[];
         if(blNum)refParts.push('N° '+blNum);
         products.forEach(function(p){refParts.push(p.name+' x'+p.qty);});
-        var entry={id:genId(),client:clientName||(blNum?'BL n°'+blNum:'BL sans numero'),address:'',time:'',ref:refParts.join(', '),instructions:'',status:'pending',deliveredAt:null,
+        var entry={id:genId(),client:clientName||(blNum?'BL n°'+blNum:'BL sans numero'),address:'',time:'',ref:refParts.join(', '),instructions:consigne,status:'pending',deliveredAt:null,
           livreur:tourneeMate?tourneeMate.livreur:'',livreurPhone:tourneeMate?tourneeMate.livreurPhone:'',
           note:'',blNum:blNum||'',blPdf:originalPdfBase64,
           tourneeNum:tourneeInfo.tourneeNum||'',tourneeTitle:tourneeMate?tourneeMate.tourneeTitle:(tourneeInfo.tourneeTitle||''),
@@ -1922,7 +1956,8 @@ function deliveryRow(d){
   var stuckWarning=nbPhotos&&d.status==='pending';
   var tourneeBadge=d.tourneeNum?'<span class="spill" style="background:var(--teal-l);color:var(--teal-d);border:1px solid var(--teal);" title="Tournee">🚛 '+esc(d.tourneeNum)+'</span>':'';
   var pdfIcon=d.blPdf?'<span class="row-pdf-btn" data-action="download-bl" data-id="'+d.id+'" title="Ouvrir le BL">📄</span>':'';
-  var content='<div class="row-indicator '+meta.ind+'"></div><div class="row-body"><div class="row-top"><span class="row-time">'+esc(d.time)+'</span><span class="row-client">'+esc(d.client)+'</span>'+tourneeBadge+pdfIcon+(nbPhotos?'<span class="spill" style="'+(stuckWarning?'background:#FEF4E6;color:#8A5A10;border:1px solid #F0D9B5;':'background:var(--paper-2);color:var(--ink-2);border:1px solid var(--rule);')+'" title="'+(stuckWarning?'Photos prises mais pointage non valide':'')+'">🖼️ '+nbPhotos+(stuckWarning?' ⚠️':'')+'</span>':'')+'<span class="spill '+meta.sp+'">'+meta.label+'</span></div><div class="row-address">'+esc(d.address)+'</div>'+(d.livreur?'<div class="row-driver">👤 '+esc(d.livreur)+'</div>':'')+'</div>';
+  var consigneIcon=d.instructions?'<span class="row-pdf-btn" data-action="show-consigne" data-id="'+d.id+'" title="'+esc(d.instructions)+'">📌</span>':'';
+  var content='<div class="row-indicator '+meta.ind+'"></div><div class="row-body"><div class="row-top"><span class="row-time">'+esc(d.time)+'</span><span class="row-client">'+esc(d.client)+'</span>'+tourneeBadge+pdfIcon+consigneIcon+(nbPhotos?'<span class="spill" style="'+(stuckWarning?'background:#FEF4E6;color:#8A5A10;border:1px solid #F0D9B5;':'background:var(--paper-2);color:var(--ink-2);border:1px solid var(--rule);')+'" title="'+(stuckWarning?'Photos prises mais pointage non valide':'')+'">🖼️ '+nbPhotos+(stuckWarning?' ⚠️':'')+'</span>':'')+'<span class="spill '+meta.sp+'">'+meta.label+'</span></div><div class="row-address">'+esc(d.address)+'</div>'+(d.livreur?'<div class="row-driver">👤 '+esc(d.livreur)+'</div>':'')+'</div>';
   if(state.selMode){
     var chk=state.selected[d.id]?'checked':'';
     return'<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+chk+' data-action="toggle-select" data-id="'+d.id+'"/><button class="delivery-row" data-action="toggle-select" data-id="'+d.id+'">'+content+'</button></div>';
@@ -2719,6 +2754,11 @@ if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
 }return;}
 
 if(action==='gen-invoice'){var deliv=state.deliveries.find(function(x){return x.id===id;});if(deliv)generateInvoice(deliv);return;}
+if(action==='show-consigne'){
+  var delivCons=state.deliveries.find(function(x){return x.id===id;});
+  if(delivCons&&delivCons.instructions)alert('📌 Consigne — '+delivCons.client+'\n\n'+delivCons.instructions);
+  return;
+}
 if(action==='download-bl'){
   var delivBl=state.deliveries.find(function(x){return x.id===id;});
   if(delivBl&&delivBl.blPdf){
