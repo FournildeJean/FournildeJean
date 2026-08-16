@@ -1411,10 +1411,17 @@ function extractTourneeInfo(text){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var result={tourneeNum:'',tourneeTitle:''};
   for(var i=0;i<lines.length;i++){
-    var m=lines[i].match(/Tourn[eé]e\s*:\s*(\S+)/i);
-    if(m){
-      result.tourneeNum=m[1].trim();
-      // Le titre/categorie est generalement sur la ligne suivante (ex: "EVENEMENTIEL")
+    // Format le plus courant : "Tournée : 06 CLERMONT 1" — numero ET titre sur la MEME ligne
+    var mSameLine=lines[i].match(/Tourn[eé]e\s*:\s*(\S+)\s+(.+)$/i);
+    if(mSameLine){
+      result.tourneeNum=mSameLine[1].trim();
+      result.tourneeTitle=mSameLine[2].trim();
+      break;
+    }
+    // Repli : le numero seul sur la ligne (rien apres), le titre sur la ligne suivante
+    var mNumOnly=lines[i].match(/^Tourn[eé]e\s*:\s*(\S+)\s*$/i);
+    if(mNumOnly){
+      result.tourneeNum=mNumOnly[1].trim();
       for(var j=i+1;j<lines.length;j++){
         if(lines[j]&&!/^(bon de livraison|n[°o]\s*bl)/i.test(lines[j])){
           result.tourneeTitle=lines[j];break;
