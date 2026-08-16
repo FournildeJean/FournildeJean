@@ -1226,6 +1226,7 @@ function parseProductItemsStrict(ref){
   var out=[];
   parts.forEach(function(p){
     if(/^BL[\w\/\-]+$/i.test(p))return;
+    if(looksLikeInstruction.test(p))return; // une consigne (ex: "LIVRAISON AVANT 8H00 - CODE 1234") n'est jamais un produit
     var m1=p.match(/^(.+?)\s+[xX]\s*(\d+)$/);
     var m2=p.match(/^(\d+)\s+[xX]?\s+(.+)$/);
     if(m1){out.push({name:m1[1].trim(),qty:parseInt(m1[2])});}
@@ -1351,6 +1352,7 @@ function extractClientName(text){
   }
   return '';
 }
+var looksLikeInstruction=/\b(avant|apr[eè]s|entre\s.+\set\s|code|digicode|porte|sonner|pr[eé]venir|attention|merci|svp|s\.?v\.?p\.?|noter|livraison\s|interphone|gardien|accueil|escalier|[eé]tage|batiment|b[aâ]timent)\b/i;
 function extractProducts(text,tourneeTitleToSkip){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var products=[];
@@ -1359,6 +1361,7 @@ function extractProducts(text,tourneeTitleToSkip){
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
     if(tourneeTitleToSkip&&l===tourneeTitleToSkip)continue; // le titre de tournee (ex: "CLERMONT 1") n'est jamais un produit
+    if(looksLikeInstruction.test(l))continue; // une consigne (ex: "LIVRAISON AVANT 8H00 - CODE 1234") n'est jamais un produit, meme si elle se termine par un nombre
     // Quantite sur la meme ligne : "Boule T80 65"
     var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
     if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2){
@@ -1385,9 +1388,9 @@ function extractConsigne(text,tourneeTitleToSkip){
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
     if(tourneeTitleToSkip&&l===tourneeTitleToSkip)continue;
-    var mSameLine=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
+    var mSameLine=!looksLikeInstruction.test(l)?l.match(/^(.{3,})\s+(\d{1,4})\s*$/):null;
     var estProduitMemeLigne=!!(mSameLine&&parseInt(mSameLine[2])>0&&!skipProd.test(mSameLine[1].trim())&&!looksLikePhone.test(mSameLine[1].trim())&&mSameLine[1].trim().length>2);
-    var estProduitLigneSuivante=i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l);
+    var estProduitLigneSuivante=i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&!looksLikeInstruction.test(l);
     if(estProduitMemeLigne||estProduitLigneSuivante){premierProduitVu=true;if(estProduitLigneSuivante)i++;continue;}
     if(!premierProduitVu)continue; // pas encore dans la zone produits (en-tetes, adresse...)
     if(/^\d{1,4}$/.test(l))continue; // une quantite isolee deja rattachee a la ligne precedente
