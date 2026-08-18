@@ -1529,16 +1529,25 @@ function parsePdfText(text){
 }
 function readPdf(file){if(!window.pdfjsLib){state.pdfParsing=false;state.errorMsg='Lecture PDF indisponible (bibliotheque non chargee). Reessayez plus tard.';render();return;}state.pdfParsing=true;state.pdfData=null;render();var reader=new FileReader();reader.onload=function(e){var originalPdfBase64=arrayBufferToBase64(e.target.result);pdfjsLib.getDocument({data:new Uint8Array(e.target.result)}).promise.then(function(pdf){var pages=[];for(var p=1;p<=pdf.numPages;p++)pages.push(p);Promise.all(pages.map(function(p){return pdf.getPage(p).then(function(pg){return pg.getTextContent().then(function(c){return c.items.map(function(it){return it.str;}).join('\n');});});})).then(function(texts){var parsed=parsePdfText(texts.join('\n'));parsed.originalPdfBase64=originalPdfBase64;state.pdfData=parsed;state.pdfParsing=false;render();setTimeout(function(){if(document.getElementById('f-client')&&parsed.client)document.getElementById('f-client').value=parsed.client;if(document.getElementById('f-address')&&parsed.address)document.getElementById('f-address').value=parsed.address;if(document.getElementById('f-ref')&&parsed.ref)document.getElementById('f-ref').value=parsed.ref;if(document.getElementById('f-instructions')&&parsed.instructions)document.getElementById('f-instructions').value=parsed.instructions;if(document.getElementById('f-time')&&parsed.time)document.getElementById('f-time').value=parsed.time;if(document.getElementById('f-date')&&parsed.date)document.getElementById('f-date').value=convertDate(parsed.date);},50);});}).catch(function(){state.pdfParsing=false;state.errorMsg='Erreur lecture PDF.';render();});};reader.readAsArrayBuffer(file);}
 
-function extractPdfPageItems(arrayBuffer){
+function extractPdfPageTextAndItems(arrayBuffer){
   return pdfjsLib.getDocument({data:new Uint8Array(arrayBuffer)}).promise.then(function(pdf){
-    return pdf.getPage(1).then(function(pg){
-      var pageWidth=(pg.view&&pg.view.length===4&&pg.view[2])?pg.view[2]:612;
-      return pg.getTextContent().then(function(c){
-        return{pageWidth:pageWidth,items:c.items.map(function(it){
-          var tf=it.transform;
-          return{str:it.str,x:(tf&&typeof tf[4]==='number')?tf[4]:0,y:(tf&&typeof tf[5]==='number')?tf[5]:0};
-        })};
+    var pages=[];for(var p=1;p<=pdf.numPages;p++)pages.push(p);
+    var firstPageWidth=612,firstPageItems=[];
+    return Promise.all(pages.map(function(p){
+      return pdf.getPage(p).then(function(pg){
+        if(p===1&&pg.view&&pg.view.length===4&&pg.view[2])firstPageWidth=pg.view[2];
+        return pg.getTextContent().then(function(c){
+          if(p===1){
+            firstPageItems=c.items.map(function(it){
+              var tf=it.transform;
+              return{str:it.str,x:(tf&&typeof tf[4]==='number')?tf[4]:0,y:(tf&&typeof tf[5]==='number')?tf[5]:0};
+            });
+          }
+          return c.items.map(function(it){return it.str;}).join('\n');
+        });
       });
+    })).then(function(texts){
+      return{text:texts.join('\n'),pageData:{pageWidth:firstPageWidth,items:firstPageItems}};
     });
   });
 }
@@ -1695,9 +1704,7 @@ function importBlPdfsBulk(fileList){
     var reader=new FileReader();
     reader.onload=function(e){
       var originalPdfBase64=arrayBufferToBase64(e.target.result);
-      extractPdfPageText(e.target.result).then(function(text){
-        return extractPdfPageItems(e.target.result).then(function(pageData){return{text:text,pageData:pageData};}).catch(function(){return{text:text,pageData:null};});
-      }).then(function(res){
+      extractPdfPageTextAndItems(e.target.result).then(function(res){
         var text=res.text;
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
