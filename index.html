@@ -1124,6 +1124,52 @@ async function printQrCodesPdf(caisseIds){
     alert('Erreur lors de la génération du PDF : '+e.message);
   }
 }
+function exportRapportCaisses(dateFrom,dateTo){
+  if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
+  var parClient={},ordreClients=[];
+  var d=new Date(dateFrom+'T00:00:00'),end=new Date(dateTo+'T00:00:00');
+  while(d<=end){
+    var dk=toLocalISODate(d);
+    var dayDeliveries=[];
+    try{var raw=localStorage.getItem('fdj-tournee:'+dk);if(raw)dayDeliveries=JSON.parse(raw)||[];}catch(e){}
+    dayDeliveries.forEach(function(del){
+      if(!del.contenants)return;
+      var client=del.client||'(client inconnu)';
+      if(!(client in parClient)){
+        parClient[client]={};
+        CONTENANTS.forEach(function(c){parClient[client][c.key]={livre:0,recupere:0};});
+        ordreClients.push(client);
+      }
+      CONTENANTS.forEach(function(c){
+        var v=del.contenants[c.key]||{livre:0,recupere:0};
+        parClient[client][c.key].livre+=(v.livre||0);
+        parClient[client][c.key].recupere+=(v.recupere||0);
+      });
+    });
+    d.setDate(d.getDate()+1);
+  }
+  var header=['Client'];
+  CONTENANTS.forEach(function(c){
+    header.push(c.label+' — Livré');
+    if(c.recuperable)header.push(c.label+' — Récupéré');
+  });
+  var rows=[header];
+  ordreClients.sort(function(a,b){return a.localeCompare(b,'fr');}).forEach(function(client){
+    var row=[client];
+    CONTENANTS.forEach(function(c){
+      var v=parClient[client][c.key];
+      row.push(v.livre);
+      if(c.recuperable)row.push(v.recupere);
+    });
+    rows.push(row);
+  });
+  if(ordreClients.length===0){alert('Aucune donnée de caisses sur cette période.');return;}
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=autoFitCols(rows);ws['!autofilter']={ref:'A1:'+String.fromCharCode(65+header.length-1)+rows.length};ws['!freeze']={ySplit:1};
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Caisses par client');
+  var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
+  XLSX.writeFile(wb,'caisses-par-client-'+suffix+'.xlsx');
+}
 function exportCommandeGlobale(){
   if(typeof XLSX==='undefined'){alert('Export non disponible.');return;}
   var totaux={},ordreProduits=[];
@@ -1962,6 +2008,7 @@ function renderRapportModal(){
         '<button class="btn-rapport-cancel" data-action="close-rapport">← Retour</button>'+
         '<button class="btn-rapport-go" data-action="gen-rapport">📄 Générer</button>'+
       '</div>'+
+      '<button class="btn-outline" style="width:100%;margin-top:10px;padding:11px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="gen-rapport-caisses">🧺 Rapport caisses par client (Excel)</button>'+
       '<button class="btn-danger" style="width:100%;margin-top:10px;padding:11px;" data-action="delete-rapport">🗑 Supprimer les données de cette période</button>'+
     '</div>'+
   '</div>';
@@ -2298,6 +2345,48 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';var livItems=stat
     waItems+
     '<div class="add-row"><input id="wa-nom" placeholder="Nom (ex: Groupe Alertes)" type="text" style="max-width:140px;"/><input id="wa-numero" placeholder="Numéro (ex: 33612345678)" type="tel"/><button class="btn-add-lv" data-action="submit-add-wa-contact">+</button></div>';
   return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+waSection+'</div></div>';}
+var CONTENANTS=[
+  {key:'manesVertes',label:'Manes vertes',recuperable:true},
+  {key:'caissesGrises',label:'Caisses grises',recuperable:true},
+  {key:'caissesBicolores',label:'Caisses bicolores',recuperable:true},
+  {key:'sacsKraft',label:'Sacs kraft',recuperable:false}
+];
+function getPendingContenants(){
+  if(!state.pendingContenants){
+    state.pendingContenants={};
+    CONTENANTS.forEach(function(c){state.pendingContenants[c.key]={livre:0,recupere:0};});
+  }
+  return state.pendingContenants;
+}
+function renderContenantsSection(d){
+  var pc=getPendingContenants();
+  var html='<div class="field-label" style="margin-top:14px;">🧺 Caisses (livrées / récupérées)</div>';
+  html+='<div style="border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-top:4px;">';
+  CONTENANTS.forEach(function(c,idx){
+    var vals=pc[c.key]||{livre:0,recupere:0};
+    html+='<div style="display:flex;align-items:center;padding:8px 10px;'+(idx>0?'border-top:1px solid var(--rule);':'')+'">';
+    html+='<div style="flex:1;font-size:12px;font-weight:700;color:var(--ink);">'+esc(c.label)+'</div>';
+    html+='<div style="display:flex;align-items:center;gap:4px;">';
+    html+='<span style="font-size:9px;color:var(--ink-3);text-transform:uppercase;margin-right:2px;">Livré</span>';
+    html+='<button class="btn-outline" style="padding:2px 9px;font-size:14px;font-weight:700;" data-action="decr-contenant" data-key="'+c.key+'" data-champ="livre">−</button>';
+    html+='<span style="min-width:20px;text-align:center;font-weight:700;font-size:14px;">'+vals.livre+'</span>';
+    html+='<button class="btn-outline" style="padding:2px 9px;font-size:14px;font-weight:700;" data-action="incr-contenant" data-key="'+c.key+'" data-champ="livre">+</button>';
+    html+='</div>';
+    if(c.recuperable){
+      html+='<div style="display:flex;align-items:center;gap:4px;margin-left:10px;">';
+      html+='<span style="font-size:9px;color:var(--ink-3);text-transform:uppercase;margin-right:2px;">Récup.</span>';
+      html+='<button class="btn-outline" style="padding:2px 9px;font-size:14px;font-weight:700;" data-action="decr-contenant" data-key="'+c.key+'" data-champ="recupere">−</button>';
+      html+='<span style="min-width:20px;text-align:center;font-weight:700;font-size:14px;">'+vals.recupere+'</span>';
+      html+='<button class="btn-outline" style="padding:2px 9px;font-size:14px;font-weight:700;" data-action="incr-contenant" data-key="'+c.key+'" data-champ="recupere">+</button>';
+      html+='</div>';
+    } else {
+      html+='<div style="width:100px;text-align:center;font-size:10px;color:var(--ink-3);font-style:italic;margin-left:10px;">non repris</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
 function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';html+='<div class="divider"></div>';
   var livePhotos=getDeliveryPhotos(d);
   if(livePhotos.length)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">🖼️ Photo constat ('+livePhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+livePhotos.map(function(p,pi){
@@ -2330,7 +2419,9 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
     if(state.role==='livreur'){
       html+='<div class="mic-wrap"><div class="field-label" style="flex:1;">Constats</div><button id="mic-btn" class="btn-mic" data-action="start-voice" title="Parler">🎙</button><span id="mic-status" class="mic-status">● Écoute...</span></div><textarea id="f-note" rows="3" placeholder="">'+esc(state.pendingNote||'')+'</textarea>';
       html+='<button id="btn-camera" class="btn-camera" style="margin-top:4px;" data-action="take-photo">📷 '+(livePhotos.length?'Ajouter une autre photo':'Prendre une photo constat')+'</button>';
+      if(!livePhotos.length)html+='<div style="margin-top:8px;padding:8px 12px;background:var(--red-s);border:1px solid rgba(200,40,26,.25);border-radius:8px;font-size:12px;color:var(--red);font-weight:700;">📷 Photo obligatoire pour valider ce pointage, quel que soit le statut.</div>';
       if(livePhotos.length)html+='<div style="margin-top:10px;padding:8px 12px;background:#FEF4E6;border:1px solid #F0D9B5;border-radius:8px;font-size:12px;color:#8A5A10;">⚠️ Photo(s) enregistree(s), mais le pointage n\'est pas encore valide. Cliquez sur "Valider le pointage" pour confirmer le statut.</div>';
+      html+=renderContenantsSection(d);
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">← Retour</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';
@@ -2440,8 +2531,7 @@ function renderTourneeDetailModal(){
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
     } else {
-      html+='<button class="btn-primary" style="width:100%;margin-bottom:8px;background:var(--green);" data-action="mark-tournee-delivered" data-tournee="'+esc(tn)+'">✅ Valider toute la tournée livrée</button>';
-      html+='<div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:16px;text-align:center;">S\'il y a un souci sur un BL précis (absent, incident...), ouvrez-le individuellement ci-dessous.</div>';
+      html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:16px;text-align:center;">Ouvrez chaque BL ci-dessous pour le pointer individuellement (statut + photo obligatoires).</div>';
     }
   }
   html+='<div class="divider"></div>';
@@ -2555,6 +2645,14 @@ if(action==='gen-rapport'){
   if(!from||!to){alert('Sélectionnez une période.');return;}
   if(from>to){alert('La date début doit être avant la date fin.');return;}
   generateRapport(from,to);
+  return;
+}
+if(action==='gen-rapport-caisses'){
+  var fromC=document.getElementById('r-from').value;
+  var toC=document.getElementById('r-to').value;
+  if(!fromC||!toC){alert('Sélectionnez une période.');return;}
+  if(fromC>toC){alert('La date début doit être avant la date fin.');return;}
+  exportRapportCaisses(fromC,toC);
   return;
 }
 if(action==='delete-rapport'){
@@ -2832,21 +2930,6 @@ if(action==='assign-tournee-detail'){
   render();
   return;
 }
-if(action==='mark-tournee-delivered'){
-  var tnD=el.getAttribute('data-tournee');
-  if(!confirm('Valider toute la tournée '+tnD+' comme livrée ?'))return;
-  var noteD=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
-  var nowIso=new Date().toISOString();
-  var justDeliveredIds=state.deliveries.filter(function(d){return d.tourneeNum===tnD&&d.status!=='delivered';}).map(function(d){return d.id;});
-  persist(state.deliveries.map(function(d){
-    if(d.tourneeNum===tnD&&d.status!=='delivered')return Object.assign({},d,{status:'delivered',deliveredAt:nowIso,note:noteD||d.note});
-    return d;
-  }));
-  captureGeoLocationAsync(justDeliveredIds);
-  state.pendingNote='';
-  render();
-  return;
-}
 if(action==='self-assign'){assignLivreur(id,state.livreurId);return;}
 if(action==='self-assign-tournee'){
   var tn=el.getAttribute('data-tournee');
@@ -2915,7 +2998,7 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv,blPdf:state.pdfData?state.pdfData.originalPdfBase64:null});
 }
-else if(action==='select'){state.selectedId=id;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';if(state.role!=='livreur')state.selectedLivreurId='';render();}
+else if(action==='select'){state.selectedId=id;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();}
 else if(action==='close-detail'){
   var curD=state.deliveries.find(function(x){return x.id===state.selectedId;});
   if(curD&&curD.status==='pending'){
@@ -2929,6 +3012,18 @@ else if(action==='close-detail'){
   state.selectedId=null;state.modifyMode=false;state.showModifier=false;state.pendingNote='';render();
 }
 else if(action==='set-outcome'){state.pendingOutcome=el.getAttribute('data-key');render();}
+else if(action==='incr-contenant'){
+  var pcInc=getPendingContenants();
+  var keyInc=el.getAttribute('data-key'),champInc=el.getAttribute('data-champ');
+  pcInc[keyInc][champInc]=(pcInc[keyInc][champInc]||0)+1;
+  render();
+}
+else if(action==='decr-contenant'){
+  var pcDec=getPendingContenants();
+  var keyDec=el.getAttribute('data-key'),champDec=el.getAttribute('data-champ');
+  pcDec[keyDec][champDec]=Math.max(0,(pcDec[keyDec][champDec]||0)-1);
+  render();
+}
 else if(action==='toggle-modifier'){state.showModifier=!state.showModifier;render();}
 else if(action==='start-voice'){startVoice();}
 else if(action==='take-photo'){document.getElementById('cam-input').click();}
@@ -2951,8 +3046,13 @@ else if(action==='submit-point'){
   var liv=getLivreurById(selId);
   var note=document.getElementById('f-note')?document.getElementById('f-note').value.trim():'';
   var deliveryAvant=state.deliveries.find(function(x){return x.id===id;});
+  if(deliveryAvant&&getDeliveryPhotos(deliveryAvant).length===0){
+    alert('📷 Une photo est obligatoire pour valider ce pointage. Prenez une photo avant de valider.');
+    return;
+  }
   var livreurNom=liv?liv.name:(state.role==='livreur'?state.livreurName:'');
-  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note});
+  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note,contenants:getPendingContenants()});
+  state.pendingContenants=null;
   captureGeoLocationAsync(id);
   if(['absent','refused','incident'].indexOf(state.pendingOutcome)!==-1&&deliveryAvant){
     ouvrirAlerteWhatsApp(Object.assign({},deliveryAvant,{status:state.pendingOutcome,livreur:livreurNom,note:note}));
