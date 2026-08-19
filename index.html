@@ -3125,6 +3125,14 @@ if(action==='do-resp-login'){var pwd=document.getElementById('l-pwd').value;if(p
 if(action==='logout'){if(state.role==='livreur')saveCamionFields();sessionStorage.removeItem('fdj-role');sessionStorage.removeItem('fdj-livreur-id');state.role=null;state.screen='choose';state.livreurId=null;state.loginError='';render();return;}
 if(action==='save-camion'){
   var camIdSave=el.getAttribute('data-cam-id');
+  var elNumero=document.getElementById('cf-camion-'+camIdSave);
+  var elPrise=document.getElementById('cf-heurePrise-'+camIdSave);
+  var elDepose=document.getElementById('cf-heureDepose-'+camIdSave);
+  var numeroVal=elNumero?elNumero.value.trim():'';
+  var priseVal=elPrise?elPrise.value.trim():'';
+  var deposeVal=elDepose?elDepose.value.trim():'';
+  var recap='📋 Confirmez ces informations avant validation :\n\nN° Camion : '+(numeroVal||'(non renseigné)')+'\nPrise : '+(priseVal||'(non renseignée)')+'\nDépose : '+(deposeVal||'(non renseignée)')+'\n\nOK = valider et signer\nAnnuler = revenir pour corriger';
+  if(!confirm(recap))return;
   saveCamionFields();
   // Sauvegarder la signature de ce camion precis
   var sigData=null;
