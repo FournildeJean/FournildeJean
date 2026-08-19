@@ -263,7 +263,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .ind-delivered{background:var(--green);}
 .ind-absent,.ind-refused,.ind-incident{background:var(--red);}
 .row-body{flex:1;padding:11px 16px 11px 12px;min-width:0;}
-.row-client-line{font-weight:700;font-size:14px;color:var(--ink);white-space:normal;word-break:break-word;margin-bottom:3px;}
+.row-client-line{font-weight:700;font-size:13px;color:var(--ink);white-space:normal;word-break:break-word;line-height:1.25;margin-bottom:3px;}
 .row-top{display:flex;align-items:baseline;gap:10px;margin-bottom:3px;flex-wrap:wrap;}
 .row-time{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex-shrink:0;}
 .row-client{font-weight:700;font-size:14px;color:var(--ink);flex:1;white-space:normal;word-break:break-word;}
@@ -464,12 +464,12 @@ var APP_VERSION='v2026-08-03.5';
 var STATUS_META={
   pending:    {label:'En attente',ind:'ind-pending',    sp:'sp-pending',    oc:'oc-amber',      fg:'#C87010',bg:'#FEF4E6'},
   in_progress:{label:'En cours',  ind:'ind-inprogress', sp:'sp-inprogress', oc:'oc-inprogress', fg:'#1E6FA8',bg:'#E8F2FA'},
-  delivered:  {label:'Livre',     ind:'ind-delivered',  sp:'sp-delivered',  oc:'oc-delivered',  fg:'#2A7A3A',bg:'#EBF5ED'},
+  delivered:  {label:'Livré',     ind:'ind-delivered',  sp:'sp-delivered',  oc:'oc-delivered',  fg:'#2A7A3A',bg:'#EBF5ED'},
   absent:     {label:'Absent',    ind:'ind-absent',     sp:'sp-absent',     oc:'oc-absent',     fg:'#C8281A',bg:'#FEF0EE'},
-  refused:    {label:'Refuse',    ind:'ind-refused',    sp:'sp-refused',    oc:'oc-refused',    fg:'#C8281A',bg:'#FEF0EE'},
+  refused:    {label:'Refusé',    ind:'ind-refused',    sp:'sp-refused',    oc:'oc-refused',    fg:'#C8281A',bg:'#FEF0EE'},
   incident:   {label:'Incident',  ind:'ind-incident',   sp:'sp-incident',   oc:'oc-incident',   fg:'#C8281A',bg:'#FEF0EE'}
 };
-var OUTCOMES=[{key:'delivered',label:'Livre',cls:'oc-delivered'},{key:'absent',label:'Absent',cls:'oc-absent'},{key:'refused',label:'Refuse',cls:'oc-refused'},{key:'incident',label:'Incident',cls:'oc-incident'}];
+var OUTCOMES=[{key:'delivered',label:'Livré',cls:'oc-delivered'},{key:'absent',label:'Absent',cls:'oc-absent'},{key:'refused',label:'Refusé',cls:'oc-refused'},{key:'incident',label:'Incident',cls:'oc-incident'}];
 
 
 function loadLivreurs(){try{var r=localStorage.getItem('fdj-livreurs-list');return r?JSON.parse(r):[];}catch(e){return[];}}
@@ -1295,9 +1295,10 @@ function exportRapportCaisses(dateFrom,dateTo){
     var estBicolore=c.key==='caissesBicolores';
     var catFill={patternType:'solid',fgColor:{rgb:c.color}};
     var catFont={color:{rgb:INK},bold:true,sz:11};
+    var nomFont=estBicolore?{color:{rgb:'1B4FA0'},bold:true,sz:11}:catFont;
     var livreFill=estBicolore?{patternType:'solid',fgColor:{rgb:BLEU}}:catFill;
     var recupFill=estBicolore?{patternType:'solid',fgColor:{rgb:JAUNE}}:catFill;
-    row1.push({v:c.label,t:'s',s:{fill:catFill,font:catFont,alignment:{horizontal:'center'},border:allBorders}});
+    row1.push({v:c.label,t:'s',s:{fill:catFill,font:nomFont,alignment:{horizontal:'center'},border:allBorders}});
     row2.push({v:'Livré',t:'s',s:{fill:livreFill,font:catFont,alignment:{horizontal:'center'},border:allBorders}});
     if(c.recuperable){
       row1.push({v:'',t:'s',s:{fill:catFill,border:allBorders}});
@@ -1331,7 +1332,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var ws=XLSX.utils.aoa_to_sheet(aoaRows);
   ws['!merges']=merges;
   ws['!cols']=row2.map(function(){return{wch:16};});
-  ws['!cols'][0]={wch:26};
+  ws['!cols'][0]={wch:38};
   ws['!freeze']={ySplit:2};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Caisses par client');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
@@ -1603,8 +1604,14 @@ function extractClientNameByPosition(pageData){
   var candidats=lines.filter(function(l){return !headerPattern.test(l.text);});
   if(!candidats.length)return'';
   // Priorite 1 : la premiere ligne EN GRAS parmi les candidats (le nom du client est toujours en gras dans le cadre).
-  var grasTrouve=candidats.filter(function(l){return l.gras;});
-  if(grasTrouve.length)return grasTrouve[0].text;
+  var premierIndexGras=candidats.findIndex(function(l){return l.gras;});
+  if(premierIndexGras!==-1){
+    var morceaux=[candidats[premierIndexGras].text];
+    for(var j=premierIndexGras+1;j<candidats.length&&candidats[j].gras;j++){
+      morceaux.push(candidats[j].text);
+    }
+    return morceaux.join(' ');
+  }
   // Repli (si l'info de gras n'a pas pu etre lue dans ce PDF) : la toute premiere ligne du cadre.
   return candidats[0].text;
 }
