@@ -1287,7 +1287,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var allBorders={top:thinBorder,bottom:thinBorder,left:thinBorder,right:thinBorder};
 
   // Ligne 1 : nom de categorie (fusionne sur ses sous-colonnes) ; Ligne 2 : Livre / Recupere
-  var row1=[{v:'Clients',t:'s',s:{fill:headerFill,font:headerFont,alignment:{horizontal:'center'},border:allBorders}}];
+  var row1=[{v:'Clients',t:'s',s:{fill:headerFill,font:{color:{rgb:WHITE},bold:true,sz:14},alignment:{horizontal:'center'},border:allBorders}}];
   var row2=[{v:'',t:'s',s:{fill:headerFill,border:allBorders}}];
   var merges=[{s:{r:0,c:0},e:{r:1,c:0}}];
   var colIndex=1;
@@ -1295,14 +1295,17 @@ function exportRapportCaisses(dateFrom,dateTo){
     var estBicolore=c.key==='caissesBicolores';
     var catFill={patternType:'solid',fgColor:{rgb:c.color}};
     var catFont={color:{rgb:INK},bold:true,sz:11};
-    var nomFont=estBicolore?{color:{rgb:'1B4FA0'},bold:true,sz:11}:catFont;
-    var livreFill=estBicolore?{patternType:'solid',fgColor:{rgb:BLEU}}:catFill;
-    var recupFill=estBicolore?{patternType:'solid',fgColor:{rgb:JAUNE}}:catFill;
+    var fontBicolore={color:{rgb:'1B4FA0'},bold:true,sz:11};
+    var nomFont=estBicolore?fontBicolore:catFont;
+    var livreFill=catFill;
+    var recupFill=catFill;
+    var livreFont=estBicolore?fontBicolore:catFont;
+    var recupFont=estBicolore?fontBicolore:catFont;
     row1.push({v:c.label,t:'s',s:{fill:catFill,font:nomFont,alignment:{horizontal:'center'},border:allBorders}});
-    row2.push({v:'Livré',t:'s',s:{fill:livreFill,font:catFont,alignment:{horizontal:'center'},border:allBorders}});
+    row2.push({v:'Livré',t:'s',s:{fill:livreFill,font:livreFont,alignment:{horizontal:'center'},border:allBorders}});
     if(c.recuperable){
       row1.push({v:'',t:'s',s:{fill:catFill,border:allBorders}});
-      row2.push({v:'Récupéré',t:'s',s:{fill:recupFill,font:catFont,alignment:{horizontal:'center'},border:allBorders}});
+      row2.push({v:'Récupéré',t:'s',s:{fill:recupFill,font:recupFont,alignment:{horizontal:'center'},border:allBorders}});
       merges.push({s:{r:0,c:colIndex},e:{r:0,c:colIndex+1}});
       colIndex+=2;
     } else {
@@ -1313,7 +1316,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var dataRows=stats.ordreClients.map(function(client,idx){
     var bg=idx%2===0?WHITE:PAPER2;
     var rowFill={patternType:'solid',fgColor:{rgb:bg}};
-    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK}},border:allBorders}}];
+    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center'},border:allBorders}}];
     CONTENANTS.forEach(function(c){
       var v=stats.parClient[client][c.key];
       row.push({v:v.livre,t:'n',s:{fill:rowFill,alignment:{horizontal:'center'},border:allBorders}});
@@ -1604,16 +1607,20 @@ function extractClientNameByPosition(pageData){
   var candidats=lines.filter(function(l){return !headerPattern.test(l.text);});
   if(!candidats.length)return'';
   // Priorite 1 : la premiere ligne EN GRAS parmi les candidats (le nom du client est toujours en gras dans le cadre).
-  var premierIndexGras=candidats.findIndex(function(l){return l.gras;});
-  if(premierIndexGras!==-1){
-    var morceaux=[candidats[premierIndexGras].text];
-    for(var j=premierIndexGras+1;j<candidats.length&&candidats[j].gras;j++){
-      morceaux.push(candidats[j].text);
-    }
-    return morceaux.join(' ');
+  // Le nom du client est la premiere ligne du cadre. S'il continue sur la ligne suivante
+  // (ex: "SAS 5 CHAMBRES EN VILLE (LA" + "PARENTHESE)"), une parenthese ouverte non refermee
+  // le trahit : on concatene alors la ou les lignes suivantes jusqu'a ce qu'elle se referme.
+  var morceaux=[candidats[0].text];
+  var texteCumule=candidats[0].text;
+  var ouvertes=(texteCumule.match(/\(/g)||[]).length-(texteCumule.match(/\)/g)||[]).length;
+  var k=1;
+  while(ouvertes>0&&k<candidats.length&&k<4){
+    morceaux.push(candidats[k].text);
+    texteCumule+=' '+candidats[k].text;
+    ouvertes=(texteCumule.match(/\(/g)||[]).length-(texteCumule.match(/\)/g)||[]).length;
+    k++;
   }
-  // Repli (si l'info de gras n'a pas pu etre lue dans ce PDF) : la toute premiere ligne du cadre.
-  return candidats[0].text;
+  return morceaux.join(' ');
 }
 function extractPdfPageText(arrayBuffer){
   return pdfjsLib.getDocument({data:new Uint8Array(arrayBuffer)}).promise.then(function(pdf){
