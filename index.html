@@ -1287,8 +1287,8 @@ function exportRapportCaisses(dateFrom,dateTo){
   var allBorders={top:thinBorder,bottom:thinBorder,left:thinBorder,right:thinBorder};
 
   // Ligne 1 : nom de categorie (fusionne sur ses sous-colonnes) ; Ligne 2 : Livre / Recupere
-  var row1=[{v:'',t:'s',s:{fill:headerFill,border:allBorders}}];
-  var row2=[{v:'Clients',t:'s',s:{fill:headerFill,font:headerFont,border:allBorders}}];
+  var row1=[{v:'Clients',t:'s',s:{fill:headerFill,font:headerFont,alignment:{horizontal:'center'},border:allBorders}}];
+  var row2=[{v:'',t:'s',s:{fill:headerFill,border:allBorders}}];
   var merges=[{s:{r:0,c:0},e:{r:1,c:0}}];
   var colIndex=1;
   CONTENANTS.forEach(function(c){
@@ -1577,9 +1577,15 @@ function extractClientNameByPosition(pageData){
   if(!pageData||!pageData.items||!pageData.items.length)return'';
   var items=pageData.items.filter(function(it){return it.str&&it.str.trim();});
   if(!items.length)return'';
-  // Regrouper les items en lignes par proximite verticale (memes coordonnees Y ~= meme ligne visuelle)
+  var seuil=pageData.pageWidth*0.42;
+  // Separer gauche/droite AVANT de regrouper par ligne : sinon un nom client (a droite) situe
+  // a la meme hauteur qu'une ligne de gauche (ex: l'adresse de la societe) se retrouve fusionne
+  // avec elle et n'est plus jamais reconnu comme etant a droite. C'est la cause du bug precedent,
+  // confirmee par le diagnostic reel : "LE CYRANO" fusionnait avec "63100 CLERMONT-FERRAND".
+  var itemsDroite=items.filter(function(it){return it.x>seuil;});
+  if(!itemsDroite.length)return'';
   var lines=[];
-  items.forEach(function(it){
+  itemsDroite.forEach(function(it){
     var line=lines.filter(function(l){return Math.abs(l.y-it.y)<3;})[0];
     if(!line){line={y:it.y,items:[]};lines.push(line);}
     line.items.push(it);
@@ -1591,12 +1597,10 @@ function extractClientNameByPosition(pageData){
     l.gras=l.items.some(function(it){return estGras(it.fontName,pageData.styles);});
   });
   lines.sort(function(a,b){return b.y-a.y;}); // haut de page en premier
-  // Le cadre client (livraison) est toujours a droite de la page ; le cadre "Adresse de Facturation" est a gauche.
-  var seuil=pageData.pageWidth*0.42;
-  var rightLines=lines.filter(function(l){return l.minX>seuil&&l.text.length>1;});
+  lines=lines.filter(function(l){return l.text.length>1;});
   // On exclut l'entete "Tournee / BON DE LIVRAISON / N BL" (situe au-dessus du cadre client, egalement a droite).
   var headerPattern=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl)/i;
-  var candidats=rightLines.filter(function(l){return !headerPattern.test(l.text);});
+  var candidats=lines.filter(function(l){return !headerPattern.test(l.text);});
   if(!candidats.length)return'';
   // Priorite 1 : la premiere ligne EN GRAS parmi les candidats (le nom du client est toujours en gras dans le cadre).
   var grasTrouve=candidats.filter(function(l){return l.gras;});
@@ -2320,7 +2324,6 @@ function renderRapportModal(){
         '<button class="btn-rapport-cancel" data-action="close-rapport">← Retour</button>'+
         '<button class="btn-rapport-go" data-action="gen-rapport">📄 Générer</button>'+
       '</div>'+
-      '<button class="btn-outline" style="width:100%;margin-top:10px;padding:11px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="gen-rapport-caisses">🧺 Rapport caisses par client (Excel)</button>'+
       '<button class="btn-danger" style="width:100%;margin-top:10px;padding:11px;" data-action="delete-rapport">🗑 Supprimer les données de cette période</button>'+
     '</div>'+
   '</div>';
@@ -3018,14 +3021,6 @@ if(action==='gen-rapport'){
   if(!from||!to){alert('Sélectionnez une période.');return;}
   if(from>to){alert('La date début doit être avant la date fin.');return;}
   generateRapport(from,to);
-  return;
-}
-if(action==='gen-rapport-caisses'){
-  var fromC=document.getElementById('r-from').value;
-  var toC=document.getElementById('r-to').value;
-  if(!fromC||!toC){alert('Sélectionnez une période.');return;}
-  if(fromC>toC){alert('La date début doit être avant la date fin.');return;}
-  exportRapportCaisses(fromC,toC);
   return;
 }
 if(action==='delete-rapport'){
