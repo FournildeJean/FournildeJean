@@ -1371,7 +1371,40 @@ function exportRapportCaisses(dateFrom,dateTo){
   ws['!cols']=row2.map(function(){return{wch:16};});
   ws['!cols'][0]={wch:38};
   ws['!freeze']={ySplit:2};
-  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Caisses par client');
+
+  // Onglet separe : combien de caisses restent chez chaque client (Livre - Recupere), par categorie recuperable.
+  var categoriesRecuperables=CONTENANTS.filter(function(c){return c.recuperable;});
+  var headerFillSolde={patternType:'solid',fgColor:{rgb:TEAL}};
+  var headerFontSolde={color:{rgb:WHITE},bold:true,sz:13};
+  var soldeHeader=['Clients'].concat(categoriesRecuperables.map(function(c){return c.label;})).map(function(v){
+    return{v:v,t:'s',s:{fill:headerFillSolde,font:headerFontSolde,alignment:{horizontal:'center'},border:allBorders}};
+  });
+  var soldeRows=stats.ordreClients.map(function(client,idx){
+    var bg=idx%2===0?WHITE:PAPER2;
+    var rowFill={patternType:'solid',fgColor:{rgb:bg}};
+    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',wrapText:true},border:allBorders}}];
+    categoriesRecuperables.forEach(function(c){
+      var v=stats.parClient[client][c.key];
+      var reste=(v.livre||0)-(v.recupere||0);
+      var resteFill={patternType:'solid',fgColor:{rgb:reste>0?AMBER:(reste<0?'C8281A':bg)}};
+      var resteFont={color:{rgb:reste!==0?WHITE:INK},bold:true};
+      row.push({v:reste,t:'n',s:{fill:resteFill,font:resteFont,alignment:{horizontal:'center'},border:allBorders}});
+    });
+    return row;
+  });
+  var soldeTotalRow=[{v:'TOTAL',t:'s',s:{fill:{patternType:'solid',fgColor:{rgb:AMBER}},font:{color:{rgb:WHITE},bold:true},border:allBorders}}];
+  categoriesRecuperables.forEach(function(c){
+    var totalReste=stats.parCategorie[c.key].livre-stats.parCategorie[c.key].recupere;
+    soldeTotalRow.push({v:totalReste,t:'n',s:{fill:{patternType:'solid',fgColor:{rgb:AMBER}},font:{color:{rgb:WHITE},bold:true},alignment:{horizontal:'center'},border:allBorders}});
+  });
+  var soldeAoa=[soldeHeader].concat(soldeRows).concat([soldeTotalRow]);
+  var wsSolde=XLSX.utils.aoa_to_sheet(soldeAoa);
+  wsSolde['!cols']=[{wch:38}].concat(categoriesRecuperables.map(function(){return{wch:16};}));
+  wsSolde['!freeze']={ySplit:1};
+
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Caisses par client');
+  XLSX.utils.book_append_sheet(wb,wsSolde,'Solde restant par client');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
   XLSX.writeFile(wb,'caisses-par-client-'+suffix+'.xlsx');
 }
