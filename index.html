@@ -609,7 +609,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showPdfDiagnostic:false,pdfDiagnosticResult:null,showCamionConfirm:false,camionConfirmData:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showPdfDiagnostic:false,pdfDiagnosticResult:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -1031,6 +1031,31 @@ function upsertCamionById(camId,fields){
   if(ex){Object.assign(ex,fields);}
   else{state.camions=state.camions.concat([Object.assign({id:camId||genId()},fields)]);}
   saveCamions(state.date,state.camions);
+}
+function optionsCamionNumeros(selected){
+  var html='<option value="">—</option>';
+  for(var i=1;i<=50;i++){
+    var sel=(String(i)===String(selected))?' selected':'';
+    html+='<option value="'+i+'"'+sel+'>'+i+'</option>';
+  }
+  return html;
+}
+function optionsHoraires(selected){
+  var html='<option value="">—</option>';
+  for(var h=0;h<24;h++){
+    for(var m=0;m<60;m+=15){
+      var val=(h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+      var sel=(val===selected)?' selected':'';
+      html+='<option value="'+val+'"'+sel+'>'+val+'</option>';
+    }
+  }
+  return html;
+}
+function plagesSeChevauchent(prise1,depose1,prise2,depose2){
+  function toMin(t){var m=(t||'').match(/^(\d{1,2}):(\d{2})$/);if(!m)return null;return parseInt(m[1],10)*60+parseInt(m[2],10);}
+  var a1=toMin(prise1),a2=toMin(depose1),b1=toMin(prise2),b2=toMin(depose2);
+  if(a1===null||a2===null||b1===null||b2===null)return false;
+  return a1<b2&&b1<a2;
 }
 function saveCamionFields(){
   // Nouveaux champs par camion ID
@@ -2480,13 +2505,11 @@ function renderLivreurApp(){
       '</div>'+
       '<div class="camion-fields">'+
         '<div class="camion-fwrap"><div class="camion-flabel">N° Camion</div>'+
-          '<input id="cf-camion-'+cam.id+'" class="camion-finput camion-field" data-cam-id="'+cam.id+'" data-cam-field="camion" data-cam-next="cf-heurePrise-'+cam.id+'" type="text" maxlength="8" placeholder="CAM-01" value="'+(champsVides?'':esc(cam.camion||''))+'"/></div>'+
+          '<select id="cf-camion-'+cam.id+'" class="camion-finput camion-field" data-cam-id="'+cam.id+'" data-cam-field="camion">'+optionsCamionNumeros(champsVides?'':(cam.camion||''))+'</select></div>'+
         '<div class="camion-fwrap"><div class="camion-flabel">Prise</div>'+
-          '<input id="cf-heurePrise-'+cam.id+'" class="camion-finput time-txt camion-field" data-cam-id="'+cam.id+'" data-cam-field="heurePrise" data-cam-next="cf-heureDepose-'+cam.id+'" type="text" inputmode="numeric" maxlength="5" placeholder="0600" value="'+(champsVides?'':esc(cam.heurePrise||''))+'"/>'+
-          '<div class="camion-hint">ex: 0600</div></div>'+
+          '<select id="cf-heurePrise-'+cam.id+'" class="camion-finput camion-field" data-cam-id="'+cam.id+'" data-cam-field="heurePrise">'+optionsHoraires(champsVides?'':(cam.heurePrise||''))+'</select></div>'+
         '<div class="camion-fwrap"><div class="camion-flabel">Dépose</div>'+
-          '<input id="cf-heureDepose-'+cam.id+'" class="camion-finput time-txt camion-field" data-cam-id="'+cam.id+'" data-cam-field="heureDepose" type="text" inputmode="numeric" maxlength="5" placeholder="1400" value="'+(champsVides?'':esc(cam.heureDepose||''))+'"/>'+
-          '<div class="camion-hint">ex: 1400</div></div>'+
+          '<select id="cf-heureDepose-'+cam.id+'" class="camion-finput camion-field" data-cam-id="'+cam.id+'" data-cam-field="heureDepose">'+optionsHoraires(champsVides?'':(cam.heureDepose||''))+'</select></div>'+
       '</div>'+
       '<div class="sig-wrap" style="margin-top:10px;">'+
         '<div class="sig-label"><span>✍️ Signature</span>'+
@@ -2538,7 +2561,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+=renderTimeline(true)+'</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal();
   return html;
 }
 
@@ -2683,23 +2706,7 @@ function renderPdfDiagnosticModal(){
   html+='</div></div>';
   return html;
 }
-function renderCamionConfirmModal(){
-  if(!state.showCamionConfirm||!state.camionConfirmData)return'';
-  var d=state.camionConfirmData;
-  var html='<div class="modal-overlay" data-action="cancel-camion-confirm"><div class="modal-sheet" data-action="noop" style="max-width:340px;">';
-  html+='<div style="text-align:center;padding:4px 0 14px;">';
-  html+='<div style="font-size:32px;margin-bottom:8px;">📋</div>';
-  html+='<div style="font-weight:800;font-size:15px;color:var(--ink);margin-bottom:14px;">Confirmez avant validation</div>';
-  html+='<div style="text-align:left;background:var(--paper-2);border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.8;">';
-  html+='N° Camion : <strong>'+esc(d.numero||'(non renseigné)')+'</strong><br>';
-  html+='Prise : <strong>'+esc(d.prise||'(non renseignée)')+'</strong><br>';
-  html+='Dépose : <strong>'+esc(d.depose||'(non renseignée)')+'</strong>';
-  html+='</div></div>';
-  html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="cancel-camion-confirm">← Corriger</button>';
-  html+='<button class="btn-primary" style="width:100%;" data-action="confirm-camion-save">✅ Valider</button>';
-  html+='</div></div>';
-  return html;
-}
+
 function renderPhotoReminderModal(){
   if(!state.showPhotoReminder)return'';
   var html='<div class="modal-overlay" data-action="cancel-photo-reminder"><div class="modal-sheet" data-action="noop" style="max-width:340px;">';
@@ -3149,31 +3156,26 @@ if(action==='save-camion'){
   var elNumero=document.getElementById('cf-camion-'+camIdSave);
   var elPrise=document.getElementById('cf-heurePrise-'+camIdSave);
   var elDepose=document.getElementById('cf-heureDepose-'+camIdSave);
-  var sigCamCapture=camIdSave?document.getElementById('sig-cam-'+camIdSave):null;
-  var sigDataCapture=(sigCamCapture&&sigCamCapture.classList.contains('signed'))?sigCamCapture.toDataURL('image/png'):null;
-  state.camionConfirmData={
-    id:camIdSave,
-    numero:elNumero?elNumero.value.trim():'',
-    prise:elPrise?elPrise.value.trim():'',
-    depose:elDepose?elDepose.value.trim():'',
-    signature:sigDataCapture
-  };
-  state.showCamionConfirm=true;
-  render();
-  return;
-}
-if(action==='cancel-camion-confirm'){
-  state.showCamionConfirm=false;
-  state.camionConfirmData=null;
-  render();
-  return;
-}
-if(action==='confirm-camion-save'){
-  var camIdSave=state.camionConfirmData?state.camionConfirmData.id:null;
-  var sigData=state.camionConfirmData?state.camionConfirmData.signature:null;
-  state.showCamionConfirm=false;
-  state.camionConfirmData=null;
+  var numeroVal=elNumero?elNumero.value.trim():'';
+  var priseVal=elPrise?normalizeTime(elPrise.value.trim())||elPrise.value.trim():'';
+  var deposeVal=elDepose?normalizeTime(elDepose.value.trim())||elDepose.value.trim():'';
+  if(numeroVal&&priseVal&&deposeVal){
+    var conflit=state.camions.find(function(c){
+      if(c.id===camIdSave)return false;
+      if((c.camion||'').trim().toLowerCase()!==numeroVal.toLowerCase())return false;
+      if(!c.signature)return false; // seulement les plages deja signees comptent comme "prises"
+      return plagesSeChevauchent(priseVal,deposeVal,c.heurePrise,c.heureDepose);
+    });
+    if(conflit){
+      var msgConflit='⚠️ Le camion N°'+numeroVal+' est déjà signé sur une plage qui chevauche ('+(conflit.heurePrise||'?')+' - '+(conflit.heureDepose||'?')+' par '+(conflit.livreurName||'un autre livreur')+').\n\nContinuer quand même ?';
+      if(!confirm(msgConflit))return;
+    }
+  }
   saveCamionFields();
+  // Sauvegarder la signature de ce camion precis
+  var sigData=null;
+  var sigCam=camIdSave?document.getElementById('sig-cam-'+camIdSave):null;
+  if(sigCam&&sigCam.classList.contains('signed')){sigData=sigCam.toDataURL('image/png');}
   if(sigData&&camIdSave){
     upsertCamionById(camIdSave,{signature:sigData});
   }
@@ -3587,6 +3589,7 @@ document.getElementById('app').addEventListener('input',function(e){
   if(e.target.id==='l-nom'){state.pendingLivreurNom=e.target.value;}
 });
 document.getElementById('app').addEventListener('blur',function(e){if(e.target.classList.contains('camion-field')){saveCamionFields();}},true);
+document.getElementById('app').addEventListener('change',function(e){if(e.target.classList.contains('camion-field')){saveCamionFields();}});
 document.getElementById('app').addEventListener('keydown',function(e){if(e.key!=='Enter')return;var btn=null;if(state.screen==='livreur-name')btn=document.querySelector('[data-action="check-livreur-name"]');else if(state.screen==='password')btn=document.querySelector('[data-action="do-resp-login"]');if(btn)btn.click();});
 document.getElementById('pdf-input').addEventListener('change',function(e){var files=e.target.files;if(files&&files.length)importBlPdfsBulk(files);e.target.value='';});
 document.getElementById('pdf-diagnostic-input').addEventListener('change',function(e){var files=e.target.files;if(files&&files.length)diagnosePdf(files[0]);e.target.value='';});
