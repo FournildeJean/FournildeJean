@@ -609,7 +609,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showPdfDiagnostic:false,pdfDiagnosticResult:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showPdfDiagnostic:false,pdfDiagnosticResult:null,showCamionConfirm:false,camionConfirmData:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -2538,7 +2538,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+=renderTimeline(true)+'</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal();
   return html;
 }
 
@@ -2680,6 +2680,23 @@ function renderPdfDiagnosticModal(){
   html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:10px;">Chaque ligne détectée sur le PDF, avec sa position et si elle est en gras. Envoyez une capture de ce résultat.</p>';
   html+='<textarea id="pdf-diagnostic-output" readonly style="width:100%;min-height:320px;font-family:monospace;font-size:11px;padding:10px;border:1px solid var(--rule);border-radius:8px;background:var(--paper-2);">'+esc(state.pdfDiagnosticResult||'')+'</textarea>';
   html+='<button class="btn-outline" style="width:100%;margin-top:10px;" data-action="copy-pdf-diagnostic">📋 Copier le résultat</button>';
+  html+='</div></div>';
+  return html;
+}
+function renderCamionConfirmModal(){
+  if(!state.showCamionConfirm||!state.camionConfirmData)return'';
+  var d=state.camionConfirmData;
+  var html='<div class="modal-overlay" data-action="cancel-camion-confirm"><div class="modal-sheet" data-action="noop" style="max-width:340px;">';
+  html+='<div style="text-align:center;padding:4px 0 14px;">';
+  html+='<div style="font-size:32px;margin-bottom:8px;">📋</div>';
+  html+='<div style="font-weight:800;font-size:15px;color:var(--ink);margin-bottom:14px;">Confirmez avant validation</div>';
+  html+='<div style="text-align:left;background:var(--paper-2);border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.8;">';
+  html+='N° Camion : <strong>'+esc(d.numero||'(non renseigné)')+'</strong><br>';
+  html+='Prise : <strong>'+esc(d.prise||'(non renseignée)')+'</strong><br>';
+  html+='Dépose : <strong>'+esc(d.depose||'(non renseignée)')+'</strong>';
+  html+='</div></div>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="cancel-camion-confirm">← Corriger</button>';
+  html+='<button class="btn-primary" style="width:100%;" data-action="confirm-camion-save">✅ Valider</button>';
   html+='</div></div>';
   return html;
 }
@@ -3132,16 +3149,31 @@ if(action==='save-camion'){
   var elNumero=document.getElementById('cf-camion-'+camIdSave);
   var elPrise=document.getElementById('cf-heurePrise-'+camIdSave);
   var elDepose=document.getElementById('cf-heureDepose-'+camIdSave);
-  var numeroVal=elNumero?elNumero.value.trim():'';
-  var priseVal=elPrise?elPrise.value.trim():'';
-  var deposeVal=elDepose?elDepose.value.trim():'';
-  var recap='📋 Confirmez ces informations avant validation :\n\nN° Camion : '+(numeroVal||'(non renseigné)')+'\nPrise : '+(priseVal||'(non renseignée)')+'\nDépose : '+(deposeVal||'(non renseignée)')+'\n\nOK = valider et signer\nAnnuler = revenir pour corriger';
-  if(!confirm(recap))return;
+  var sigCamCapture=camIdSave?document.getElementById('sig-cam-'+camIdSave):null;
+  var sigDataCapture=(sigCamCapture&&sigCamCapture.classList.contains('signed'))?sigCamCapture.toDataURL('image/png'):null;
+  state.camionConfirmData={
+    id:camIdSave,
+    numero:elNumero?elNumero.value.trim():'',
+    prise:elPrise?elPrise.value.trim():'',
+    depose:elDepose?elDepose.value.trim():'',
+    signature:sigDataCapture
+  };
+  state.showCamionConfirm=true;
+  render();
+  return;
+}
+if(action==='cancel-camion-confirm'){
+  state.showCamionConfirm=false;
+  state.camionConfirmData=null;
+  render();
+  return;
+}
+if(action==='confirm-camion-save'){
+  var camIdSave=state.camionConfirmData?state.camionConfirmData.id:null;
+  var sigData=state.camionConfirmData?state.camionConfirmData.signature:null;
+  state.showCamionConfirm=false;
+  state.camionConfirmData=null;
   saveCamionFields();
-  // Sauvegarder la signature de ce camion precis
-  var sigData=null;
-  var sigCam=camIdSave?document.getElementById('sig-cam-'+camIdSave):null;
-  if(sigCam&&sigCam.classList.contains('signed')){sigData=sigCam.toDataURL('image/png');}
   if(sigData&&camIdSave){
     upsertCamionById(camIdSave,{signature:sigData});
   }
