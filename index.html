@@ -1385,22 +1385,26 @@ function exportRapportCaisses(dateFrom,dateTo){
     var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',wrapText:true},border:allBorders}}];
     categoriesRecuperables.forEach(function(c){
       var v=stats.parClient[client][c.key];
-      var reste=(v.livre||0)-(v.recupere||0);
-      var resteFill={patternType:'solid',fgColor:{rgb:reste>0?AMBER:(reste<0?'C8281A':bg)}};
-      var resteFont={color:{rgb:reste!==0?WHITE:INK},bold:true};
+      // Signe : negatif = encore du chez le client (livre > recupere) ; positif = excedent recupere (recupere > livre).
+      var reste=(v.recupere||0)-(v.livre||0);
+      var resteFill={patternType:'solid',fgColor:{rgb:reste<0?AMBER:(reste>0?BLEU:bg)}};
+      var resteFont={color:{rgb:reste<0?WHITE:INK},bold:true};
       row.push({v:reste,t:'n',s:{fill:resteFill,font:resteFont,alignment:{horizontal:'center'},border:allBorders}});
     });
     return row;
   });
   var soldeTotalRow=[{v:'TOTAL',t:'s',s:{fill:{patternType:'solid',fgColor:{rgb:AMBER}},font:{color:{rgb:WHITE},bold:true},border:allBorders}}];
   categoriesRecuperables.forEach(function(c){
-    var totalReste=stats.parCategorie[c.key].livre-stats.parCategorie[c.key].recupere;
+    var totalReste=stats.parCategorie[c.key].recupere-stats.parCategorie[c.key].livre;
     soldeTotalRow.push({v:totalReste,t:'n',s:{fill:{patternType:'solid',fgColor:{rgb:AMBER}},font:{color:{rgb:WHITE},bold:true},alignment:{horizontal:'center'},border:allBorders}});
   });
   var soldeAoa=[soldeHeader].concat(soldeRows).concat([soldeTotalRow]);
   var wsSolde=XLSX.utils.aoa_to_sheet(soldeAoa);
   wsSolde['!cols']=[{wch:38}].concat(categoriesRecuperables.map(function(){return{wch:16};}));
   wsSolde['!freeze']={ySplit:1};
+  wsSolde['!autofilter']={ref:'A1:'+String.fromCharCode(65+categoriesRecuperables.length)+soldeAoa.length};
+
+  ws['!autofilter']={ref:'A1:'+String.fromCharCode(65+row2.length-1)+aoaRows.length};
 
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Caisses par client');
