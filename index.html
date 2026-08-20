@@ -646,6 +646,15 @@ function buildOrderRecapText(d){
   if(d.status==='delivered'&&d.deliveredAt)statusLine+=' a '+new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
   lines.push(statusLine);
   if(d.note){lines.push('');lines.push('Constat : '+d.note);}
+  if(d.historique&&d.historique.length){
+    lines.push('');
+    lines.push('Historique des tentatives :');
+    d.historique.forEach(function(h){
+      var hMeta=STATUS_META[h.status]||{label:h.status};
+      var hTs=h.deliveredAt?new Date(h.deliveredAt).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+      lines.push('- '+hMeta.label.toUpperCase()+(hTs?' ('+hTs+')':'')+(h.note?' : '+h.note:''));
+    });
+  }
   return lines.join('\n');
 }
 function shareOrder(d){
@@ -2525,6 +2534,7 @@ function renderLivreurApp(){
     '</div>';
   });
   html+='<button style="width:100%;padding:10px;margin-top:6px;border-radius:8px;border:1.5px dashed var(--teal);background:none;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;" data-action="add-camion">+ Ajouter un camion</button>';
+  html+=renderTimeline(true);
   var unassigned=state.deliveries.filter(function(d){return d.status==='pending'&&!d.livreur;});
   if(unassigned.length){
     var byTn={},tnOrder=[],soloItems=[];
@@ -2560,7 +2570,7 @@ function renderLivreurApp(){
       }).join('')+
     '</div>';
   }
-  html+=renderTimeline(true)+'</div>';
+  html+='</div>';
   html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal();
   return html;
 }
