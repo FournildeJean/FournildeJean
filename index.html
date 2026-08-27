@@ -2086,8 +2086,11 @@ function ouvrirAlerteWhatsApp(d){
 function finaliserPointage(id,liv,note,deliveryAvant){
   var livreurNom=liv?liv.name:(state.role==='livreur'?state.livreurName:'');
   var statutApplique=state.pendingOutcome;
-  var contenantsAppliques=getPendingContenants();
-  pointDelivery(id,{status:statutApplique,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note,contenants:contenantsAppliques});
+  var faitPartieDunGroupePointage=state.deliveries.filter(function(x){return x.client===deliveryAvant.client&&x.address===deliveryAvant.address;}).length>1;
+  var contenantsAppliques=faitPartieDunGroupePointage?(deliveryAvant?deliveryAvant.contenants:undefined):getPendingContenants();
+  var maj={status:statutApplique,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note};
+  if(contenantsAppliques!==undefined)maj.contenants=contenantsAppliques;
+  pointDelivery(id,maj);
   state.pendingContenants=null;
   captureGeoLocationAsync(id);
   if(['absent','refused','incident'].indexOf(statutApplique)!==-1&&deliveryAvant){
@@ -2734,7 +2737,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+='</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal()+renderGroupePointageModal()+renderGroupeDetailModal();
+  html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal()+renderGroupePointageModal()+renderGroupeDetailModal()+renderDetailModal();
   return html;
 }
 
@@ -3079,7 +3082,8 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<button id="btn-camera" class="btn-camera" style="margin-top:4px;" data-action="take-photo">📷 '+(livePhotos.length?'Ajouter une autre photo':'Prendre une photo constat')+'</button>';
       if(!livePhotos.length&&['absent','refused','incident'].indexOf(state.pendingOutcome)!==-1)html+='<div style="margin-top:8px;padding:8px 12px;background:var(--red-s);border:1px solid rgba(200,40,26,.25);border-radius:8px;font-size:12px;color:var(--red);font-weight:700;">📷 Photo fortement recommandée pour valider en '+esc((OUTCOMES.find(function(o){return o.key===state.pendingOutcome;})||{}).label||'')+' (preuve en cas de contestation).</div>';
       if(livePhotos.length)html+='<div style="margin-top:10px;padding:8px 12px;background:#FEF4E6;border:1px solid #F0D9B5;border-radius:8px;font-size:12px;color:#8A5A10;">⚠️ Photo(s) enregistree(s), mais le pointage n\'est pas encore valide. Cliquez sur "Valider le pointage" pour confirmer le statut.</div>';
-      html+=renderContenantsSection(d);
+      var faitPartieDunGroupe=state.deliveries.filter(function(x){return x.client===d.client&&x.address===d.address;}).length>1;
+      if(!faitPartieDunGroupe)html+=renderContenantsSection(d);
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">← Retour</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';
@@ -3244,7 +3248,7 @@ function renderResponsableApp(){
   html+='<button class="btn-outline" style="width:calc(100% - 32px);margin:12px 16px;background:var(--amber-l,#FEF4E6);border-color:var(--amber);color:var(--amber-d,#8A5A10);font-weight:700;" data-action="export-commande-globale">📦 Générer la commande globale (Excel)</button>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderGroupeDetailModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderGroupeDetailModal()+renderDetailModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -3629,6 +3633,7 @@ if(action==='send-wa-other'){
 if(action==='toggle-livreur-pending'){state._livreurPendingExpanded=(state._livreurPendingExpanded===id)?null:id;render();return;}
 if(action==='open-groupe-detail'){
   state.selectedGroupeId=id;
+  state.selectedId=null;
   var itemsGroupe=state.deliveries.filter(function(d){return('grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_'))===id;});
   var premier=itemsGroupe[0];
   state.pendingContenants=null; // reinitialise, puis pre-rempli depuis le 1er BL du groupe (qui porte les caisses)
@@ -3684,7 +3689,7 @@ if(action==='valider-caisses-groupe'){
   render();
   return;
 }
-if(action==='open-detail-from-livreurs'){state.showLivreurs=false;state.selectedId=id;state.selectedTourneeNum=null;render();return;}
+if(action==='open-detail-from-livreurs'){state.showLivreurs=false;state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;render();return;}
 if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
   deleteLivreur(id);
   // Supprimer aussi dans Firebase
@@ -3847,7 +3852,7 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv,blPdf:state.pdfData?state.pdfData.originalPdfBase64:null});
 }
-else if(action==='select'){state.selectedId=id;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();}
+else if(action==='select'){state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();}
 else if(action==='close-detail'){
   var curD=state.deliveries.find(function(x){return x.id===state.selectedId;});
   if(curD&&curD.status==='pending'){
@@ -3888,6 +3893,7 @@ else if(action==='refuser-groupe-pointage'){
   state.groupePointageData=null;
   if(prochainId){
     state.selectedId=prochainId;
+    state.selectedGroupeId=null;
     state.pendingOutcome='delivered';
     state.pendingNote='';
     state.pendingContenants=null;
