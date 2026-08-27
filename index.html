@@ -2521,16 +2521,15 @@ function renderGroupedDeliveryRows(items){
     var premierStatut=g.items[0].status;
     var tousMemeStatut=g.items.every(function(d){return d.status===premierStatut;});
     var meta=tousMemeStatut?STATUS_META[premierStatut]:null;
-    var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+g.items.length+' BL '+esc(meta.label)+(meta.label.slice(-1)!=='s'?'s':'')+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
-    var html='<div class="delivery-row-wrap"><button class="delivery-row" data-action="toggle-groupe-bl" data-id="'+groupeId+'" style="flex:1;">'+
+    var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+esc(meta.label)+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
+    var html='<button class="delivery-row" data-action="toggle-groupe-bl" data-id="'+groupeId+'">'+
       '<div class="row-indicator '+(meta?meta.ind:'ind-pending')+'"></div><div class="row-body">'+
       '<div class="row-client-line">📦 '+esc(g.client)+' <span style="color:var(--ink-3);font-weight:400;">('+g.items.length+' BL)</span></div>'+
       '<div class="row-top">'+statutAffiche+'<span style="color:var(--ink-3);font-size:12px;">'+(estOuvert?' ▲':' ▼')+'</span></div>'+
       '<div class="row-address">'+esc(g.address)+'</div></div></button>';
     if(state.role==='livreur'&&nbEnAttente>0){
-      html+='<button class="btn-outline" style="flex:0 0 auto;padding:8px 10px;font-size:11px;white-space:nowrap;align-self:center;margin-right:8px;" data-action="marquer-groupe-livre" data-id="'+groupeId+'">📍 Tout livré</button>';
+      html+='<button class="btn-outline" style="width:100%;margin:-2px 0 6px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="marquer-groupe-livre" data-id="'+groupeId+'">📍 Tous les BL livrés ('+nbEnAttente+')</button>';
     }
-    html+='</div>';
     if(estOuvert){
       html+='<div style="padding-left:10px;border-left:2px solid var(--rule);margin:2px 0 8px 14px;">'+g.items.map(deliveryRow).join('')+'</div>';
     }
