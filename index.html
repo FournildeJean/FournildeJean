@@ -631,7 +631,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false,dernierLivreurAssigne:''};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -2086,7 +2086,7 @@ function ouvrirAlerteWhatsApp(d){
 function finaliserPointage(id,liv,note,deliveryAvant){
   var livreurNom=liv?liv.name:(state.role==='livreur'?state.livreurName:'');
   var statutApplique=state.pendingOutcome;
-  var faitPartieDunGroupePointage=state.deliveries.filter(function(x){return x.client===deliveryAvant.client&&x.address===deliveryAvant.address;}).length>1;
+  var faitPartieDunGroupePointage=state.deliveries.filter(function(x){return x.client===deliveryAvant.client&&x.address===deliveryAvant.address&&x.livreur===deliveryAvant.livreur;}).length>1;
   var contenantsAppliques=faitPartieDunGroupePointage?(deliveryAvant?deliveryAvant.contenants:undefined):getPendingContenants();
   var maj={status:statutApplique,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note};
   if(contenantsAppliques!==undefined)maj.contenants=contenantsAppliques;
@@ -2506,6 +2506,13 @@ function renderRapportModal(){
   '</div>';
 }
 function statCell(l,v){return'<div class="stat-cell"><div class="stat-num">'+v+'</div><div class="stat-lbl">'+l+'</div></div>';}
+function itemsDuGroupe(groupeId){
+  // Meme client + meme adresse = un groupe, MAIS un BL assigne a un AUTRE livreur ne doit
+  // jamais apparaitre ici : chaque livreur ne voit et ne pointe que ses propres BL du groupe.
+  var base=state.deliveries.filter(function(d){return('grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_'))===groupeId;});
+  if(state.role==='livreur')base=base.filter(function(d){return d.livreur===state.livreurName;});
+  return base;
+}
 function renderGroupedDeliveryRows(items){
   // Regroupe visuellement les BL d'un meme client a la meme adresse (ex: 2 BL pour "Le Gourmet
   // Fiolant" livres au meme endroit), au lieu de les lister separement. Un seul BL -> ligne normale.
@@ -2534,7 +2541,7 @@ function renderGroupedDeliveryRows(items){
 function renderGroupeDetailModal(){
   if(!state.selectedGroupeId)return'';
   var groupeId=state.selectedGroupeId;
-  var items=state.deliveries.filter(function(d){return('grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_'))===groupeId;});
+  var items=itemsDuGroupe(groupeId);
   if(!items.length){state.selectedGroupeId=null;return'';}
   var premier=items[0];
   var nbEnAttente=items.filter(function(d){return d.status==='pending';}).length;
@@ -2971,12 +2978,12 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
     parTournee[key].items.push(d);
   });
   var groupesNonAssignes=Object.keys(parTournee).map(function(k){return parTournee[k];});
-  var optsLivreurs='<option value="">— Choisir —</option>'+state.livreurs.map(function(l){return'<option value="'+esc(l.id)+'">'+esc(l.name)+'</option>';}).join('');
+  var optsLivreurs='<option value="">— Choisir —</option>'+state.livreurs.map(function(l){return'<option value="'+esc(l.id)+'"'+(l.id===state.dernierLivreurAssigne?' selected':'')+'>'+esc(l.name)+'</option>';}).join('');
   var nonAssignesHtml='';
   if(groupesNonAssignes.length){
     nonAssignesHtml='<div class="section-lbl">📦 Non assignés ('+nonAssignes.length+')</div><div class="livreur-list">'+groupesNonAssignes.map(function(g){
       return '<div class="livreur-item" style="flex-wrap:wrap;gap:8px;"><div class="livreur-info" style="flex:1 1 100%;"><div class="livreur-name">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+'</div><span class="livreur-phone">'+g.items.length+' BL</span></div>'+
-        '<select id="tn-livreur-select-'+esc(g.tourneeNum)+'" autocomplete="off" style="flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid var(--rule);font-size:12.5px;">'+optsLivreurs+'</select>'+
+        '<select id="tn-livreur-select-'+esc(g.tourneeNum)+'" style="flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid var(--rule);font-size:12.5px;">'+optsLivreurs+'</select>'+
         '<button class="btn-outline" style="padding:6px 12px;font-size:12px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'">Assigner</button></div>';
     }).join('')+'</div><div class="divider"></div>';
   }
@@ -3006,14 +3013,14 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
             '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" data-action="open-detail-from-livreurs" data-id="'+d.id+'">'+
             '<span>'+esc(d.client)+'</span>'+
             '<span style="color:'+meta.fg+';font-weight:700;font-size:11px;">'+esc(meta.label).toUpperCase()+'</span></div>'+
-            '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" autocomplete="off" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
             '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="reassign-from-livreurs" data-id="'+d.id+'">Réassigner</button></div>'+
             '</div>';
         }).join('');
         if(g.tourneeNum){
           return '<div style="margin-bottom:6px;padding:6px 8px;background:#fff;border-radius:6px;border:1px solid var(--rule);">'+
             '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:6px;">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+' ('+g.items.length+' BL)</div>'+
-            '<div style="display:flex;gap:6px;margin-bottom:6px;"><select id="tn-reassign-select-'+blocId+'" autocomplete="off" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<div style="display:flex;gap:6px;margin-bottom:6px;"><select id="tn-reassign-select-'+blocId+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
             '<button class="btn-outline" style="padding:4px 10px;font-size:11px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'" data-select-id="tn-reassign-select-'+blocId+'">Réassigner tout</button></div>'+
             rowsHtml+'</div>';
         }
@@ -3093,7 +3100,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
       html+='<button id="btn-camera" class="btn-camera" style="margin-top:4px;" data-action="take-photo">📷 '+(livePhotos.length?'Ajouter une autre photo':'Prendre une photo constat')+'</button>';
       if(!livePhotos.length&&['absent','refused','incident'].indexOf(state.pendingOutcome)!==-1)html+='<div style="margin-top:8px;padding:8px 12px;background:var(--red-s);border:1px solid rgba(200,40,26,.25);border-radius:8px;font-size:12px;color:var(--red);font-weight:700;">📷 Photo fortement recommandée pour valider en '+esc((OUTCOMES.find(function(o){return o.key===state.pendingOutcome;})||{}).label||'')+' (preuve en cas de contestation).</div>';
       if(livePhotos.length)html+='<div style="margin-top:10px;padding:8px 12px;background:#FEF4E6;border:1px solid #F0D9B5;border-radius:8px;font-size:12px;color:#8A5A10;">⚠️ Photo(s) enregistree(s), mais le pointage n\'est pas encore valide. Cliquez sur "Valider le pointage" pour confirmer le statut.</div>';
-      var faitPartieDunGroupe=state.deliveries.filter(function(x){return x.client===d.client&&x.address===d.address;}).length>1;
+      var faitPartieDunGroupe=state.deliveries.filter(function(x){return x.client===d.client&&x.address===d.address&&x.livreur===d.livreur;}).length>1;
       if(!faitPartieDunGroupe)html+=renderContenantsSection(d);
       html+='<div style="display:flex;gap:8px;margin-top:10px;"><button class="btn-outline" style="flex:0 0 auto;padding:14px 18px;" data-action="close-detail">← Retour</button><button class="btn-primary" style="flex:1;background:'+meta.fg+';" data-action="submit-point" data-id="'+d.id+'">✅ Valider le pointage</button></div>';
     }
@@ -3192,6 +3199,7 @@ function renderTourneeDetailModal(){
   if(!state.selectedTourneeNum)return'';
   var tn=state.selectedTourneeNum;
   var items=state.deliveries.filter(function(d){return d.tourneeNum===tn;});
+  if(state.role==='livreur')items=items.filter(function(d){return d.livreur===state.livreurName;});
   if(!items.length){state.selectedTourneeNum=null;return'';}
   var title=items[0].tourneeTitle;
   var livreur=items[0].livreur;
@@ -3645,7 +3653,7 @@ if(action==='toggle-livreur-pending'){state._livreurPendingExpanded=(state._livr
 if(action==='open-groupe-detail'){
   state.selectedGroupeId=id;
   state.selectedId=null;
-  var itemsGroupe=state.deliveries.filter(function(d){return('grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_'))===id;});
+  var itemsGroupe=itemsDuGroupe(id);
   var premier=itemsGroupe[0];
   state.pendingContenants=null; // reinitialise, puis pre-rempli depuis le 1er BL du groupe (qui porte les caisses)
   if(premier&&premier.contenants){
@@ -3656,10 +3664,7 @@ if(action==='open-groupe-detail'){
   return;
 }
 if(action==='marquer-groupe-livre'){
-  var tousElementsGroupe=state.deliveries.filter(function(d){
-    var cleGroupe='grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_');
-    return cleGroupe===id;
-  });
+  var tousElementsGroupe=itemsDuGroupe(id);
   var candidatsGroupe=tousElementsGroupe.filter(function(d){return d.status==='pending';});
   if(!candidatsGroupe.length)return;
   if(!confirm('Marquer les '+candidatsGroupe.length+' BL de "'+candidatsGroupe[0].client+'" comme livrés ?'))return;
@@ -3685,10 +3690,7 @@ if(action==='marquer-groupe-livre'){
 if(action==='close-groupe-detail'){state.selectedGroupeId=null;state.pendingContenants=null;render();return;}
 if(action==='open-detail-from-groupe'){state.selectedGroupeId=null;state.selectedId=id;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;render();return;}
 if(action==='valider-caisses-groupe'){
-  var itemsGroupeC=state.deliveries.filter(function(d){
-    var cleGroupe='grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_');
-    return cleGroupe===id;
-  });
+  var itemsGroupeC=itemsDuGroupe(id);
   if(!itemsGroupeC.length)return;
   var premierIdC=itemsGroupeC[0].id;
   var contenantsC=getPendingContenants();
@@ -3771,6 +3773,7 @@ if(action==='reassign-from-livreurs'){
     if(d.id!==id)return d;
     return Object.assign({},d,{livreur:livF.name,livreurPhone:livF.phone||'',status:'pending',deliveredAt:null});
   }));
+  state.dernierLivreurAssigne=newLivIdF;
   render();
   return;
 }
@@ -3787,6 +3790,7 @@ if(action==='assign-tournee-detail'){
     if(d.tourneeNum===tnA&&d.status==='pending')return Object.assign({},d,{livreur:livA?livA.name:'',livreurPhone:livA?livA.phone:''});
     return d;
   }));
+  state.dernierLivreurAssigne=livSelId;
   render();
   return;
 }
