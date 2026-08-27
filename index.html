@@ -631,7 +631,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -2588,7 +2588,6 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
   if(onlyPending){
     list=list.filter(function(d){
       if(d.status==='delivered') return false; // les BL livres disparaissent ; les non-livres (en attente, absent, refuse, incident) restent visibles
-      // Livreur : seulement ses livraisons assignées
       if(state.role==='livreur') return d.livreur===state.livreurName;
       return true;
     });
@@ -2704,6 +2703,47 @@ function renderLivreurApp(){
   });
   html+='<button style="width:100%;padding:10px;margin-top:6px;border-radius:8px;border:1.5px dashed var(--teal);background:none;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;" data-action="add-camion">+ Ajouter un camion</button>';
   html+=renderTimeline(true);
+  var tousNonAssignes=state.deliveries.filter(function(d){return d.status==='pending'&&!d.livreur;});
+  if(tousNonAssignes.length){
+    var ouvertNonAssignes=state._showNonAssignesLivreur;
+    var byTnNA={},tnOrderNA=[],soloNA=[];
+    tousNonAssignes.forEach(function(d){
+      if(d.tourneeNum){
+        if(!byTnNA[d.tourneeNum]){byTnNA[d.tourneeNum]=[];tnOrderNA.push(d.tourneeNum);}
+        byTnNA[d.tourneeNum].push(d);
+      } else { soloNA.push(d); }
+    });
+    html+='<div style="padding:14px 16px;border-top:2px solid var(--rule);">';
+    html+='<button data-action="toggle-non-assignes-livreur" style="width:100%;display:flex;justify-content:space-between;align-items:center;background:var(--paper-2);border:1px dashed var(--ink-3);border-radius:8px;padding:10px 12px;font-size:12px;font-weight:700;color:var(--ink-2);cursor:pointer;">'+
+      '<span>📋 BL non assignés à prendre ('+tousNonAssignes.length+')</span><span>'+(ouvertNonAssignes?'▲':'▼')+'</span></button>';
+    if(ouvertNonAssignes){
+      html+='<div style="margin-top:8px;">'+
+        tnOrderNA.map(function(tn){
+          var items=byTnNA[tn];
+          var title=items[0].tourneeTitle;
+          return '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin-bottom:8px;">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">'+
+              '<div style="font-weight:700;font-size:13px;">🚛 Tournée '+esc(tn)+(title?' — '+esc(title):'')+' ('+items.length+' BL)</div>'+
+              '<button class="btn-outline" style="flex:0 0 auto;padding:8px 12px;font-size:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="self-assign-tournee" data-tournee="'+esc(tn)+'">Prendre toute la tournée</button>'+
+            '</div>'+
+            items.map(function(d){
+              return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--rule);">'+
+                '<div style="min-width:0;font-size:12px;color:var(--ink-2);word-break:break-word;">'+esc(d.client)+'</div>'+
+                '<button class="btn-outline" style="flex:0 0 auto;padding:5px 10px;font-size:11px;" data-action="self-assign" data-id="'+d.id+'">Prendre ce BL</button>'+
+              '</div>';
+            }).join('')+
+          '</div>';
+        }).join('')+
+        soloNA.map(function(d){
+          return '<div style="background:#fff;border:1px solid var(--rule);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;">'+
+            '<div style="min-width:0;"><div style="font-weight:700;font-size:13px;word-break:break-word;">'+esc(d.client)+'</div>'+(d.blNum?'<div style="font-size:11px;color:var(--ink-3);">N° '+esc(d.blNum)+'</div>':'')+'</div>'+
+            '<button class="btn-outline" style="flex:0 0 auto;padding:8px 14px;font-size:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="self-assign" data-id="'+d.id+'">Prendre</button>'+
+          '</div>';
+        }).join('')+
+      '</div>';
+    }
+    html+='</div>';
+  }
   html+='</div>';
   html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderCamionConfirmModal()+renderGroupeDetailModal()+renderDetailModal()+renderPhotoReminderModal()+renderGroupePointageModal();
   return html;
@@ -3756,6 +3796,7 @@ if(action==='reprendre-livraison'){
   pointDelivery(id,{status:'pending',deliveredAt:null,note:'',photos:[],photo:null,historique:historiqueMaj});
   return;
 }
+if(action==='toggle-non-assignes-livreur'){state._showNonAssignesLivreur=!state._showNonAssignesLivreur;render();return;}
 if(action==='self-assign'){assignLivreur(id,state.livreurId);return;}
 if(action==='self-assign-tournee'){
   var tn=el.getAttribute('data-tournee');
