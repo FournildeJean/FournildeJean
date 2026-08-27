@@ -631,7 +631,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false,dernierLivreurAssigne:''};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -2978,12 +2978,14 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
     parTournee[key].items.push(d);
   });
   var groupesNonAssignes=Object.keys(parTournee).map(function(k){return parTournee[k];});
-  var optsLivreurs='<option value="">— Choisir —</option>'+state.livreurs.map(function(l){return'<option value="'+esc(l.id)+'"'+(l.id===state.dernierLivreurAssigne?' selected':'')+'>'+esc(l.name)+'</option>';}).join('');
+  function optsLivreursPour(livreurActuelId){
+    return '<option value="">— Choisir —</option>'+state.livreurs.map(function(l){return'<option value="'+esc(l.id)+'"'+(l.id===livreurActuelId?' selected':'')+'>'+esc(l.name)+'</option>';}).join('');
+  }
   var nonAssignesHtml='';
   if(groupesNonAssignes.length){
     nonAssignesHtml='<div class="section-lbl">📦 Non assignés ('+nonAssignes.length+')</div><div class="livreur-list">'+groupesNonAssignes.map(function(g){
       return '<div class="livreur-item" style="flex-wrap:wrap;gap:8px;"><div class="livreur-info" style="flex:1 1 100%;"><div class="livreur-name">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+'</div><span class="livreur-phone">'+g.items.length+' BL</span></div>'+
-        '<select id="tn-livreur-select-'+esc(g.tourneeNum)+'" style="flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid var(--rule);font-size:12.5px;">'+optsLivreurs+'</select>'+
+        '<select id="tn-livreur-select-'+esc(g.tourneeNum)+'" style="flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid var(--rule);font-size:12.5px;">'+optsLivreursPour(null)+'</select>'+
         '<button class="btn-outline" style="padding:6px 12px;font-size:12px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'">Assigner</button></div>';
     }).join('')+'</div><div class="divider"></div>';
   }
@@ -3013,14 +3015,14 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
             '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" data-action="open-detail-from-livreurs" data-id="'+d.id+'">'+
             '<span>'+esc(d.client)+'</span>'+
             '<span style="color:'+meta.fg+';font-weight:700;font-size:11px;">'+esc(meta.label).toUpperCase()+'</span></div>'+
-            '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreursPour(l.id)+'</select>'+
             '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="reassign-from-livreurs" data-id="'+d.id+'">Réassigner</button></div>'+
             '</div>';
         }).join('');
         if(g.tourneeNum){
           return '<div style="margin-bottom:6px;padding:6px 8px;background:#fff;border-radius:6px;border:1px solid var(--rule);">'+
             '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:6px;">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+' ('+g.items.length+' BL)</div>'+
-            '<div style="display:flex;gap:6px;margin-bottom:6px;"><select id="tn-reassign-select-'+blocId+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<div style="display:flex;gap:6px;margin-bottom:6px;"><select id="tn-reassign-select-'+blocId+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreursPour(l.id)+'</select>'+
             '<button class="btn-outline" style="padding:4px 10px;font-size:11px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'" data-select-id="tn-reassign-select-'+blocId+'">Réassigner tout</button></div>'+
             rowsHtml+'</div>';
         }
@@ -3773,7 +3775,6 @@ if(action==='reassign-from-livreurs'){
     if(d.id!==id)return d;
     return Object.assign({},d,{livreur:livF.name,livreurPhone:livF.phone||'',status:'pending',deliveredAt:null});
   }));
-  state.dernierLivreurAssigne=newLivIdF;
   render();
   return;
 }
@@ -3790,7 +3791,6 @@ if(action==='assign-tournee-detail'){
     if(d.tourneeNum===tnA&&d.status==='pending')return Object.assign({},d,{livreur:livA?livA.name:'',livreurPhone:livA?livA.phone:''});
     return d;
   }));
-  state.dernierLivreurAssigne=livSelId;
   render();
   return;
 }
