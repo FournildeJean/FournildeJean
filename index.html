@@ -2715,7 +2715,10 @@ function renderLivreurApp(){
     });
     html+='<div style="padding:14px 16px;border-top:2px solid var(--rule);">';
     html+='<button data-action="toggle-non-assignes-livreur" style="width:100%;display:flex;justify-content:space-between;align-items:center;background:var(--paper-2);border:1px dashed var(--ink-3);border-radius:8px;padding:10px 12px;font-size:12px;font-weight:700;color:var(--ink-2);cursor:pointer;">'+
-      '<span>📋 BL non assignés à prendre ('+tousNonAssignes.length+')</span><span>'+(ouvertNonAssignes?'▲':'▼')+'</span></button>';
+      '<span>📋 BL non encore assigné ('+tousNonAssignes.length+')</span><span>'+(ouvertNonAssignes?'▲':'▼')+'</span></button>';
+    if(!ouvertNonAssignes){
+      html+='<div style="font-size:11px;color:var(--ink-3);margin-top:6px;text-align:center;">Ouvrez pour voir et prendre en charge un BL.</div>';
+    }
     if(ouvertNonAssignes){
       html+='<div style="margin-top:8px;">'+
         tnOrderNA.map(function(tn){
@@ -2973,7 +2976,7 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
   if(groupesNonAssignes.length){
     nonAssignesHtml='<div class="section-lbl">📦 Non assignés ('+nonAssignes.length+')</div><div class="livreur-list">'+groupesNonAssignes.map(function(g){
       return '<div class="livreur-item" style="flex-wrap:wrap;gap:8px;"><div class="livreur-info" style="flex:1 1 100%;"><div class="livreur-name">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+'</div><span class="livreur-phone">'+g.items.length+' BL</span></div>'+
-        '<select id="tn-livreur-select-'+esc(g.tourneeNum)+'" style="flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid var(--rule);font-size:12.5px;">'+optsLivreurs+'</select>'+
+        '<select id="tn-livreur-select-'+esc(g.tourneeNum)+'" autocomplete="off" style="flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid var(--rule);font-size:12.5px;">'+optsLivreurs+'</select>'+
         '<button class="btn-outline" style="padding:6px 12px;font-size:12px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'">Assigner</button></div>';
     }).join('')+'</div><div class="divider"></div>';
   }
@@ -3003,14 +3006,14 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
             '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" data-action="open-detail-from-livreurs" data-id="'+d.id+'">'+
             '<span>'+esc(d.client)+'</span>'+
             '<span style="color:'+meta.fg+';font-weight:700;font-size:11px;">'+esc(meta.label).toUpperCase()+'</span></div>'+
-            '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" autocomplete="off" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
             '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="reassign-from-livreurs" data-id="'+d.id+'">Réassigner</button></div>'+
             '</div>';
         }).join('');
         if(g.tourneeNum){
           return '<div style="margin-bottom:6px;padding:6px 8px;background:#fff;border-radius:6px;border:1px solid var(--rule);">'+
             '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:6px;">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+' ('+g.items.length+' BL)</div>'+
-            '<div style="display:flex;gap:6px;margin-bottom:6px;"><select id="tn-reassign-select-'+blocId+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<div style="display:flex;gap:6px;margin-bottom:6px;"><select id="tn-reassign-select-'+blocId+'" autocomplete="off" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
             '<button class="btn-outline" style="padding:4px 10px;font-size:11px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'" data-select-id="tn-reassign-select-'+blocId+'">Réassigner tout</button></div>'+
             rowsHtml+'</div>';
         }
