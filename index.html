@@ -631,7 +631,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -2503,6 +2503,36 @@ function renderRapportModal(){
   '</div>';
 }
 function statCell(l,v){return'<div class="stat-cell"><div class="stat-num">'+v+'</div><div class="stat-lbl">'+l+'</div></div>';}
+function renderGroupedDeliveryRows(items){
+  // Regroupe visuellement les BL d'un meme client a la meme adresse (ex: 2 BL pour "Le Gourmet
+  // Fiolant" livres au meme endroit), au lieu de les lister separement. Un seul BL -> ligne normale.
+  var groupes={},ordre=[];
+  items.forEach(function(d){
+    var cle=d.client+'|'+d.address;
+    if(!groupes[cle]){groupes[cle]={client:d.client,address:d.address,items:[]};ordre.push(cle);}
+    groupes[cle].items.push(d);
+  });
+  return ordre.map(function(cle){
+    var g=groupes[cle];
+    if(g.items.length===1)return deliveryRow(g.items[0]);
+    var groupeId='grp_'+cle.replace(/[^a-zA-Z0-9]/g,'_');
+    var estOuvert=state._groupeOuvert===groupeId;
+    var nbEnAttente=g.items.filter(function(d){return d.status==='pending';}).length;
+    var premierStatut=g.items[0].status;
+    var tousMemeStatut=g.items.every(function(d){return d.status===premierStatut;});
+    var meta=tousMemeStatut?STATUS_META[premierStatut]:null;
+    var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+esc(meta.label)+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
+    var html='<button class="delivery-row" data-action="toggle-groupe-bl" data-id="'+groupeId+'">'+
+      '<div class="row-indicator '+(meta?meta.ind:'ind-pending')+'"></div><div class="row-body">'+
+      '<div class="row-client-line">📦 '+esc(g.client)+' <span style="color:var(--ink-3);font-weight:400;">('+g.items.length+' BL)</span></div>'+
+      '<div class="row-top">'+statutAffiche+'<span style="color:var(--ink-3);font-size:12px;">'+(estOuvert?' ▲':' ▼')+'</span></div>'+
+      '<div class="row-address">'+esc(g.address)+'</div></div></button>';
+    if(estOuvert){
+      html+='<div style="padding-left:10px;border-left:2px solid var(--rule);margin:2px 0 8px 14px;">'+g.items.map(deliveryRow).join('')+'</div>';
+    }
+    return html;
+  }).join('');
+}
 function deliveryRow(d){
   var meta=STATUS_META[d.status];
   var nbPhotos=getDeliveryPhotos(d).length;
@@ -2565,7 +2595,7 @@ function renderTimeline(onlyPending){if(state.loading)return'<div class="loading
     }
     return '<button class="tournee-summary-row" data-action="open-tournee" data-tournee="'+esc(tn)+'">'+summaryContent+'</button>';
   }).join('');
-  return'<div class="hour-block"><div class="hour-head"><span class="hour-num">'+h+'H</span><div class="hour-rule"></div></div>'+tourneeHtml+standalone.map(deliveryRow).join('')+'</div>';
+  return'<div class="hour-block"><div class="hour-head"><span class="hour-num">'+h+'H</span><div class="hour-rule"></div></div>'+tourneeHtml+renderGroupedDeliveryRows(standalone)+'</div>';
 }).join('');}
 function renderProductsSection(){
   var prods=state.pdfData&&state.pdfData.products&&state.pdfData.products.length
@@ -2897,16 +2927,45 @@ function renderScannerModal(){
   '</div>';
 }
 function renderLivreursModal(){if(!state.showLivreurs)return'';
+  // Section "non assignes", groupee par tournee, avec assignation en bloc depuis cet ecran
+  // (l'assignation a ete retiree des ecrans tournee/BL, tout se passe desormais ici).
+  var nonAssignes=state.deliveries.filter(function(d){return !d.livreur&&d.status==='pending';});
+  var parTournee={};
+  nonAssignes.forEach(function(d){
+    var key=d.tourneeNum||'';
+    if(!parTournee[key])parTournee[key]={tourneeNum:d.tourneeNum,tourneeTitle:d.tourneeTitle,items:[]};
+    parTournee[key].items.push(d);
+  });
+  var groupesNonAssignes=Object.keys(parTournee).map(function(k){return parTournee[k];});
+  var optsLivreurs='<option value="">— Choisir —</option>'+state.livreurs.map(function(l){return'<option value="'+esc(l.id)+'">'+esc(l.name)+'</option>';}).join('');
+  var nonAssignesHtml='';
+  if(groupesNonAssignes.length){
+    nonAssignesHtml='<div class="section-lbl">📦 Non assignés ('+nonAssignes.length+')</div><div class="livreur-list">'+groupesNonAssignes.map(function(g){
+      return '<div class="livreur-item" style="flex-wrap:wrap;gap:8px;"><div class="livreur-info" style="flex:1 1 100%;"><div class="livreur-name">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+'</div><span class="livreur-phone">'+g.items.length+' BL</span></div>'+
+        '<select id="tn-livreur-select-'+esc(g.tourneeNum)+'" style="flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid var(--rule);font-size:12.5px;">'+optsLivreurs+'</select>'+
+        '<button class="btn-outline" style="padding:6px 12px;font-size:12px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'">Assigner</button></div>';
+    }).join('')+'</div><div class="divider"></div>';
+  }
+  var STATUTS_DASHBOARD=[{key:'delivered',label:'Livré'},{key:'absent',label:'Absent'},{key:'refused',label:'Refusé'},{key:'incident',label:'Incident'},{key:'pending',label:'En attente'}];
   var livItems=state.livreurs.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun livreur enregistré.</p>':'<div class="livreur-list">'+state.livreurs.map(function(l){
-    var enAttente=state.deliveries.filter(function(d){return d.livreur===l.name&&d.status==='pending';});
+    var tousSesBl=state.deliveries.filter(function(d){return d.livreur===l.name;});
+    var compteurs=STATUTS_DASHBOARD.map(function(s){return{label:s.label,n:tousSesBl.filter(function(d){return d.status===s.key;}).length};}).filter(function(c){return c.n>0;});
     var estOuvert=state._livreurPendingExpanded===l.id;
-    var html='<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+'</div><div style="display:flex;gap:6px;align-items:center;">'+
-      (enAttente.length?'<button class="btn-outline" style="padding:5px 10px;font-size:11px;white-space:nowrap;" data-action="toggle-livreur-pending" data-id="'+l.id+'">📋 '+enAttente.length+' en attente'+(estOuvert?' ▲':' ▼')+'</button>':'<span style="font-size:11px;color:var(--ink-3);">Rien en attente</span>')+
-      '<button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div></div>';
-    if(estOuvert&&enAttente.length){
-      html+='<div style="background:var(--paper-2);border-radius:8px;padding:8px;margin:-2px 0 10px;">'+enAttente.map(function(d){
-        return'<div class="livreur-pending-row" data-action="open-detail-from-livreurs" data-id="'+d.id+'" style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;">'+
-          '<span>'+esc(d.client)+(d.tourneeNum?' <span style="color:var(--ink-3);">· Tournée '+esc(d.tourneeNum)+'</span>':'')+'</span><span style="color:var(--teal);font-weight:700;">→</span></div>';
+    var html='<div class="livreur-item" style="flex-wrap:wrap;"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+'</div><div style="display:flex;gap:6px;align-items:center;">'+
+      (tousSesBl.length?'<button class="btn-outline" style="padding:5px 10px;font-size:11px;white-space:nowrap;" data-action="toggle-livreur-pending" data-id="'+l.id+'">📋 '+tousSesBl.length+' BL'+(estOuvert?' ▲':' ▼')+'</button>':'<span style="font-size:11px;color:var(--ink-3);">Aucun BL</span>')+
+      '<button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div>'+
+      (compteurs.length?'<div style="flex:1 1 100%;font-size:11.5px;color:var(--ink-3);margin-top:2px;">📊 '+compteurs.map(function(c){return c.n+' '+c.label;}).join(' · ')+'</div>':'')+
+      '</div>';
+    if(estOuvert&&tousSesBl.length){
+      html+='<div style="background:var(--paper-2);border-radius:8px;padding:8px;margin:-2px 0 10px;">'+tousSesBl.map(function(d){
+        var meta=STATUS_META[d.status]||{label:d.status,fg:'var(--ink-3)'};
+        return'<div style="padding:8px 10px;border-radius:6px;font-size:12.5px;">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" data-action="open-detail-from-livreurs" data-id="'+d.id+'">'+
+          '<span>'+esc(d.client)+(d.tourneeNum?' <span style="color:var(--ink-3);">· Tournée '+esc(d.tourneeNum)+'</span>':'')+'</span>'+
+          '<span style="color:'+meta.fg+';font-weight:700;font-size:11px;">'+esc(meta.label).toUpperCase()+'</span></div>'+
+          '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+          '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="reassign-from-livreurs" data-id="'+d.id+'">Réassigner</button></div>'+
+          '</div>';
       }).join('')+'</div>';
     }
     return html;
@@ -2916,7 +2975,7 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
     '<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Personnes ou groupes à proposer au livreur quand il signale un problème.</p>'+
     waItems+
     '<div class="add-row"><input id="wa-nom" placeholder="Nom (ex: Groupe Alertes)" type="text" style="max-width:140px;"/><input id="wa-numero" placeholder="Numéro (ex: 33612345678)" type="tel"/><button class="btn-add-lv" data-action="submit-add-wa-contact">+</button></div>';
-  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+waSection+'</div></div>';}
+  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+nonAssignesHtml+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+waSection+'</div></div>';}
 var CONTENANTS=[
   {key:'manesVertes',label:'Manes vertes',recuperable:true,color:'C6E8C6'},
   {key:'caissesGrises',label:'Caisses grises',recuperable:true,color:'D9D9D9'},
@@ -2967,16 +3026,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
   }).join('')+'</div></div>';
   if(!isPointed){
     if(state.role==='responsable'){
-      var opts2='<option value="">— Choisir un livreur —</option>';
-      state.livreurs.forEach(function(l){var sel=d.livreur===l.name?' selected':'';opts2+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
-      html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="f-livreur-select">'+opts2+'</select></div>';
-      var curLiv=state.livreurs.find(function(l){return l.name===d.livreur;});
-      if(curLiv&&curLiv.phone)html+='<div style="font-size:12px;margin:-4px 0 8px;"><a href="tel:'+esc(curLiv.phone)+'" style="color:var(--teal);font-weight:700;">📞 '+esc(curLiv.phone)+'</a></div>';
-      if(d.tourneeNum){
-        html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur-single" data-id="'+d.id+'">👤 Assigner ce BL uniquement</button>';
-      } else {
-        html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-livreur" data-id="'+d.id+'">👤 Assigner ce livreur</button>';
-      }
+      html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;padding:8px 12px;background:var(--paper-2);border-radius:8px;">'+(d.livreur?'👤 Assigné à <strong style="color:var(--ink);">'+esc(d.livreur)+'</strong>. Pour réassigner, allez dans 👥 Livreurs.':'👤 Non assigné. Pour assigner, allez dans 👥 Livreurs.')+'</div>';
     } else {
       // LIVREUR : son nom auto, pas de dropdown
       html+='<div style="font-size:12px;margin-bottom:12px;padding:8px 12px;background:var(--paper-2);border-radius:8px;">Livreur : <strong>'+esc(state.livreurName)+'</strong></div>';
@@ -2996,14 +3046,7 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
     }
 }else{var ts2=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="recap-grid"><div><div class="recap-lbl">Heure réelle</div><div class="recap-val mono">'+ts2+'</div></div>';if(d.livreur)html+='<div><div class="recap-lbl">Livreur</div><div class="recap-val">'+esc(d.livreur)+(d.livreurPhone?' <a href="tel:'+esc(d.livreurPhone)+'" style="display:block;color:var(--teal);font-size:11px;font-weight:700;margin-top:2px;">📞 '+esc(d.livreurPhone)+'</a>':'')+'</div></div>';html+='</div>';
   if(state.role==='responsable'){
-    var optsR='<option value="">— Choisir un livreur —</option>';
-    state.livreurs.forEach(function(l){var sel=d.livreur===l.name?' selected':'';optsR+='<option value="'+esc(l.id)+'"'+sel+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
-    html+='<div class="field"><div class="field-label">👤 Réassigner (remet ce BL en attente)</div><select id="f-livreur-select">'+optsR+'</select></div>';
-    if(d.tourneeNum){
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur-single" data-id="'+d.id+'">👤 Réassigner ce BL uniquement</button>';
-    } else {
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="assign-livreur" data-id="'+d.id+'">👤 Réassigner ce livreur</button>';
-    }
+    html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">Pour réassigner (remet ce BL en attente), allez dans 👥 Livreurs.</div>';
   }
   if(state.role==='livreur'&&['absent','refused','incident'].indexOf(d.status)!==-1){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="reprendre-livraison" data-id="'+d.id+'">🔁 Reprendre cette livraison</button>';
@@ -3105,13 +3148,7 @@ function renderTourneeDetailModal(){
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
   if(items.some(function(d){return d.blPdf;}))html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'">📚 Télécharger le PDF groupé de la tournée</button>';
   if(state.role==='responsable'){
-    var livreurActuelId='';
-    if(livreur){var trouve=state.livreurs.find(function(l){return l.name===livreur;});if(trouve)livreurActuelId=trouve.id;}
-    var opts='<option value="">— Choisir un livreur —</option>';
-    state.livreurs.forEach(function(l){opts+='<option value="'+esc(l.id)+'"'+(l.id===livreurActuelId?' selected':'')+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
-    html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
-    html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 '+(livreur?'Réassigner toute la tournée':'Assigner cette tournée')+'</button>';
-    html+='<div style="font-size:11px;color:var(--ink-3);margin:-4px 0 16px;">'+(livreur?'Seuls les BL encore en attente seront réassignés. ':'')+'Ouvrez un BL ci-dessous pour le consulter ou le réassigner individuellement.</div>';
+    html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:16px;">'+(livreur?'👤 Assigné à <strong style="color:var(--ink);">'+esc(livreur)+'</strong>. Pour réassigner, allez dans 👥 Livreurs.':'👤 Non assignée. Pour assigner, allez dans 👥 Livreurs.')+'</div>';
   } else {
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
@@ -3125,7 +3162,7 @@ function renderTourneeDetailModal(){
     html+='<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--paper-2);border-radius:8px;margin-bottom:8px;font-size:13px;font-weight:700;cursor:pointer;"><input type="checkbox" '+(allSelIn?'checked':'')+' data-action="toggle-select-tournee" data-tournee="'+esc(tn)+'"/> Sélectionner toute la tournée ('+items.length+' BL)</label>';
   }
   html+='<div class="section-lbl">Détail des BL</div>';
-  html+=items.map(deliveryRow).join('');
+  html+=renderGroupedDeliveryRows(items);
   html+='</div></div>';
   return html;
 }
@@ -3552,6 +3589,7 @@ if(action==='send-wa-other'){
 }
 
 if(action==='toggle-livreur-pending'){state._livreurPendingExpanded=(state._livreurPendingExpanded===id)?null:id;render();return;}
+if(action==='toggle-groupe-bl'){state._groupeOuvert=(state._groupeOuvert===id)?null:id;render();return;}
 if(action==='open-detail-from-livreurs'){state.showLivreurs=false;state.selectedId=id;state.selectedTourneeNum=null;render();return;}
 if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
   deleteLivreur(id);
@@ -3609,10 +3647,24 @@ if(action==='open-trajet-picker'){state.showTrajetPicker=true;render();return;}
 if(action==='close-trajet-picker'){state.showTrajetPicker=false;render();return;}
 if(action==='open-trajet'){state.showTrajetPicker=false;state.showTrajet=el.getAttribute('data-camion-id');render();return;}
 if(action==='close-trajet'){state.showTrajet=null;render();return;}
+if(action==='reassign-from-livreurs'){
+  var newLivIdF=document.getElementById('reassign-select-'+id)?document.getElementById('reassign-select-'+id).value:'';
+  var livF=getLivreurById(newLivIdF);
+  if(!livF){alert('Choisissez un livreur dans la liste.');return;}
+  var targetF=state.deliveries.find(function(d){return d.id===id;});
+  if(targetF&&targetF.status!=='pending'&&!confirm('Ce BL est déjà pointé. Le réassigner le remettra au statut "En attente", pour que le livreur le valide à nouveau. Continuer ?'))return;
+  persist(state.deliveries.map(function(d){
+    if(d.id!==id)return d;
+    return Object.assign({},d,{livreur:livF.name,livreurPhone:livF.phone||'',status:'pending',deliveredAt:null});
+  }));
+  render();
+  return;
+}
 if(action==='assign-tournee-detail'){
   var tnA=el.getAttribute('data-tournee');
-  var livSelId=document.getElementById('tn-livreur-select')?document.getElementById('tn-livreur-select').value:'';
+  var livSelId=document.getElementById('tn-livreur-select-'+tnA)?document.getElementById('tn-livreur-select-'+tnA).value:(document.getElementById('tn-livreur-select')?document.getElementById('tn-livreur-select').value:'');
   var livA=getLivreurById(livSelId);
+  if(!livA){alert('Choisissez un livreur dans la liste.');return;}
   var dejaLivreA=state.deliveries.some(function(d){return d.tourneeNum===tnA&&d.status!=='pending';});
   if(dejaLivreA&&!confirm('Cette tournée contient des BL déjà pointés. Seuls les BL encore en attente seront réassignés — les BL déjà pointés resteront inchangés. Continuer ?'))return;
   persist(state.deliveries.map(function(d){
@@ -3733,7 +3785,14 @@ else if(action==='delete-photo'){
   if(!isNaN(photoIdx)&&confirm('Supprimer cette photo ?')){deleteDeliveryPhoto(id,photoIdx);}
 }
 else if(action==='confirmer-groupe-pointage'){appliquerPointageGroupe();}
-else if(action==='refuser-groupe-pointage'){state.showGroupePointage=false;state.groupePointageData=null;render();}
+else if(action==='refuser-groupe-pointage'){
+  var gRefus=state.groupePointageData;
+  var n=gRefus?gRefus.autresIds.length:0;
+  state.showGroupePointage=false;
+  state.groupePointageData=null;
+  render();
+  if(n)alert('ℹ️ Il reste encore '+n+' BL à pointer pour '+(gRefus.client||'ce client')+'.');
+}
 else if(action==='clear-sig'){clearSignature();}
 else if(action==='clear-sig-cam'){
   var camIdClear=el.getAttribute('data-cam-id');
