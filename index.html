@@ -2860,7 +2860,7 @@ function renderGroupePointageModal(){
   html+='<div style="font-weight:800;font-size:15px;color:var(--ink);margin-bottom:10px;">Même client, même adresse</div>';
   html+='<div style="font-size:14px;color:var(--ink-2);line-height:1.5;">'+n+' autre'+(n>1?'s':'')+' BL de <strong>'+esc(g.client)+'</strong> '+(n>1?'sont':'est')+' à la même adresse.<br>Appliquer le statut <strong>'+esc(meta.label)+'</strong> '+(g.photos&&g.photos.length?'et la photo ':'')+'à '+(n>1?'ces BL':'ce BL')+' aussi ?</div>';
   html+='</div>';
-  html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="refuser-groupe-pointage">Non, un par un</button>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="refuser-groupe-pointage">Non, pointer le suivant</button>';
   html+='<button class="btn-primary" style="width:100%;" data-action="confirmer-groupe-pointage">✅ Oui, appliquer à tous</button>';
   html+='</div></div>';
   return html;
@@ -2957,15 +2957,33 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
       (compteurs.length?'<div style="flex:1 1 100%;font-size:11.5px;color:var(--ink-3);margin-top:2px;">📊 '+compteurs.map(function(c){return c.n+' '+c.label;}).join(' · ')+'</div>':'')+
       '</div>';
     if(estOuvert&&tousSesBl.length){
-      html+='<div style="background:var(--paper-2);border-radius:8px;padding:8px;margin:-2px 0 10px;">'+tousSesBl.map(function(d){
-        var meta=STATUS_META[d.status]||{label:d.status,fg:'var(--ink-3)'};
-        return'<div style="padding:8px 10px;border-radius:6px;font-size:12.5px;">'+
-          '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" data-action="open-detail-from-livreurs" data-id="'+d.id+'">'+
-          '<span>'+esc(d.client)+(d.tourneeNum?' <span style="color:var(--ink-3);">· Tournée '+esc(d.tourneeNum)+'</span>':'')+'</span>'+
-          '<span style="color:'+meta.fg+';font-weight:700;font-size:11px;">'+esc(meta.label).toUpperCase()+'</span></div>'+
-          '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
-          '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="reassign-from-livreurs" data-id="'+d.id+'">Réassigner</button></div>'+
-          '</div>';
+      var parTourneeL={},ordreTourneeL=[];
+      tousSesBl.forEach(function(d){
+        var key=d.tourneeNum||'__sans__';
+        if(!parTourneeL[key]){parTourneeL[key]={tourneeNum:d.tourneeNum,tourneeTitle:d.tourneeTitle,items:[]};ordreTourneeL.push(key);}
+        parTourneeL[key].items.push(d);
+      });
+      html+='<div style="background:var(--paper-2);border-radius:8px;padding:8px;margin:-2px 0 10px;">'+ordreTourneeL.map(function(key){
+        var g=parTourneeL[key];
+        var blocId=(l.id+'_'+key).replace(/[^a-zA-Z0-9]/g,'_');
+        var rowsHtml=g.items.map(function(d){
+          var meta=STATUS_META[d.status]||{label:d.status,fg:'var(--ink-3)'};
+          return'<div style="padding:8px 10px;border-radius:6px;font-size:12.5px;">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" data-action="open-detail-from-livreurs" data-id="'+d.id+'">'+
+            '<span>'+esc(d.client)+'</span>'+
+            '<span style="color:'+meta.fg+';font-weight:700;font-size:11px;">'+esc(meta.label).toUpperCase()+'</span></div>'+
+            '<div style="display:flex;gap:6px;margin-top:6px;"><select id="reassign-select-'+d.id+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<button class="btn-outline" style="padding:4px 10px;font-size:11px;" data-action="reassign-from-livreurs" data-id="'+d.id+'">Réassigner</button></div>'+
+            '</div>';
+        }).join('');
+        if(g.tourneeNum){
+          return '<div style="margin-bottom:6px;padding:6px 8px;background:#fff;border-radius:6px;border:1px solid var(--rule);">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;font-weight:700;color:var(--ink);margin-bottom:6px;">Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'')+' ('+g.items.length+' BL)</div>'+
+            '<div style="display:flex;gap:6px;margin-bottom:6px;"><select id="tn-reassign-select-'+blocId+'" style="flex:1;min-width:0;padding:5px 6px;border-radius:6px;border:1px solid var(--rule);font-size:11.5px;">'+optsLivreurs+'</select>'+
+            '<button class="btn-outline" style="padding:4px 10px;font-size:11px;white-space:nowrap;" data-action="assign-tournee-detail" data-tournee="'+esc(g.tourneeNum)+'" data-select-id="tn-reassign-select-'+blocId+'">Réassigner tout</button></div>'+
+            rowsHtml+'</div>';
+        }
+        return rowsHtml;
       }).join('')+'</div>';
     }
     return html;
@@ -3662,7 +3680,9 @@ if(action==='reassign-from-livreurs'){
 }
 if(action==='assign-tournee-detail'){
   var tnA=el.getAttribute('data-tournee');
-  var livSelId=document.getElementById('tn-livreur-select-'+tnA)?document.getElementById('tn-livreur-select-'+tnA).value:(document.getElementById('tn-livreur-select')?document.getElementById('tn-livreur-select').value:'');
+  var selectIdA=el.getAttribute('data-select-id');
+  var selEl=selectIdA?document.getElementById(selectIdA):(document.getElementById('tn-livreur-select-'+tnA)||document.getElementById('tn-livreur-select'));
+  var livSelId=selEl?selEl.value:'';
   var livA=getLivreurById(livSelId);
   if(!livA){alert('Choisissez un livreur dans la liste.');return;}
   var dejaLivreA=state.deliveries.some(function(d){return d.tourneeNum===tnA&&d.status!=='pending';});
@@ -3787,11 +3807,16 @@ else if(action==='delete-photo'){
 else if(action==='confirmer-groupe-pointage'){appliquerPointageGroupe();}
 else if(action==='refuser-groupe-pointage'){
   var gRefus=state.groupePointageData;
-  var n=gRefus?gRefus.autresIds.length:0;
+  var prochainId=gRefus&&gRefus.autresIds.length?gRefus.autresIds[0]:null;
   state.showGroupePointage=false;
   state.groupePointageData=null;
+  if(prochainId){
+    state.selectedId=prochainId;
+    state.pendingOutcome='delivered';
+    state.pendingNote='';
+    state.pendingContenants=null;
+  }
   render();
-  if(n)alert('ℹ️ Il reste encore '+n+' BL à pointer pour '+(gRefus.client||'ce client')+'.');
 }
 else if(action==='clear-sig'){clearSignature();}
 else if(action==='clear-sig-cam'){
