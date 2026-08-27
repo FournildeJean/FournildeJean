@@ -20,7 +20,7 @@
 <script type="module">
 // ── FIREBASE CONFIG ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, where, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, where, deleteDoc, getDocs, documentId } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9UvDKVYcq-KU-AjN4dDANK-c11Z72JSs",
@@ -98,11 +98,15 @@ fbListenCollection('fdj-config', function(data) {
   if(typeof window.onFbConfig === 'function') window.onFbConfig(data);
 });
 
-// Livraisons du jour courant
+// Livraisons du jour courant : un document par livraison (collection fdj-deliveries),
+// interroge par date au lieu d'ecouter un seul gros document par jour.
 function listenTodayDeliveries(date) {
-  return onSnapshot(doc(db, 'fdj-tournees', date), function(snap) {
-    if(snap.exists() && typeof window.onFbDeliveries === 'function') {
-      window.onFbDeliveries(snap.data().deliveries || []);
+  var q = query(collection(db, 'fdj-deliveries'), where('date', '==', date));
+  return onSnapshot(q, function(snap) {
+    if(typeof window.onFbDeliveries === 'function') {
+      var result = [];
+      snap.forEach(function(d) { result.push(d.data()); });
+      window.onFbDeliveries(result);
     }
   });
 }
@@ -131,6 +135,28 @@ function listenAttachments(date) {
   });
 }
 window.listenAttachments = listenAttachments;
+
+// Nettoyage des donnees anciennes sur Firestore (au-dela de la date seuil), en plus du
+// nettoyage local. Verifie/declenche uniquement a la connexion responsable, au maximum
+// une fois tous les 15 jours (voir runCleanupIfDue cote appli).
+async function cleanupOldFirestoreData(seuilISO){
+  try{
+    var qDeliveries=query(collection(db,'fdj-deliveries'), where('date','<',seuilISO));
+    var snapD=await getDocs(qDeliveries);
+    for(const d of snapD.docs){ await deleteDoc(doc(db,'fdj-deliveries',d.id)); }
+    var qAttachments=query(collection(db,'fdj-attachments'), where('date','<',seuilISO));
+    var snapA=await getDocs(qAttachments);
+    for(const d of snapA.docs){ await deleteDoc(doc(db,'fdj-attachments',d.id)); }
+    // fdj-camions est indexe par date directement comme identifiant de document (pas un champ).
+    var qCamions=query(collection(db,'fdj-camions'), where(documentId(),'<',seuilISO));
+    var snapC=await getDocs(qCamions);
+    for(const d of snapC.docs){ await deleteDoc(doc(db,'fdj-camions',d.id)); }
+    console.log('Nettoyage Firestore: '+snapD.size+' livraisons, '+snapA.size+' pieces jointes, '+snapC.size+' camions supprimes (anterieurs a '+seuilISO+').');
+  }catch(e){
+    console.error('Erreur lors du nettoyage Firestore:', e);
+  }
+}
+window.cleanupOldFirestoreData = cleanupOldFirestoreData;
 
 console.log('✅ Firebase FourniLive connecté');
 </script>
@@ -605,12 +631,41 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null};
 var savedRole=sessionStorage.getItem('fdj-role');
-if(savedRole==='responsable'){state.screen='app';state.role='responsable';}
+if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
 
 function toLocalISODate(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
+// Nettoyage automatique : verifie a la connexion responsable si ca fait au moins 15 jours
+// depuis le dernier nettoyage ; si oui, supprime les donnees (BL, photos, camions) de plus
+// de 15 jours, sur le telephone ET sur Firestore. L'Excel reste l'archive au-dela.
+function runCleanupIfDue(){
+  var DUREE_RETENTION_JOURS=15;
+  var dernierNettoyage=localStorage.getItem('fdj-last-cleanup');
+  var maintenant=new Date();
+  if(dernierNettoyage){
+    var joursDepuis=(maintenant-new Date(dernierNettoyage))/(1000*60*60*24);
+    if(joursDepuis<DUREE_RETENTION_JOURS)return;
+  }
+  var seuilDate=new Date(maintenant);
+  seuilDate.setDate(seuilDate.getDate()-DUREE_RETENTION_JOURS);
+  var seuilISO=toLocalISODate(seuilDate);
+  var clesASupprimer=[];
+  for(var i=0;i<localStorage.length;i++){
+    var cle=localStorage.key(i);
+    var m=cle&&cle.match(/^fdj-(tournee|camions):(\d{4}-\d{2}-\d{2})$/);
+    if(m&&m[2]<seuilISO)clesASupprimer.push(cle);
+  }
+  clesASupprimer.forEach(function(cle){localStorage.removeItem(cle);});
+  if(window.fbReady&&window.cleanupOldFirestoreData){
+    window.cleanupOldFirestoreData(seuilISO);
+  } else {
+    setTimeout(runCleanupIfDue, 1000);
+    return;
+  }
+  localStorage.setItem('fdj-last-cleanup', maintenant.toISOString());
+}
 function formatDateLabel(s){var p=s.split('-').map(Number),dt=new Date(p[0],p[1]-1,p[2]);var l=dt.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});return l.charAt(0).toUpperCase()+l.slice(1);}
 function genId(){return 'd_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -760,7 +815,7 @@ function handlePhoto(e){
     if(noteEl) state.pendingNote=noteEl.value;
     var targetId=state.selectedId;
     var tourneeNum=state.selectedTourneeNum;
-    compressImage(ev.target.result, 1280, 0.72).then(function(compressed){
+    compressImage(ev.target.result, 900, 0.55).then(function(compressed){
       if(targetId){
         addDeliveryPhoto(targetId, compressed); // sauvegarde immediate dans la galerie
       } else if(tourneeNum){
@@ -1672,7 +1727,7 @@ function extractClientNameByPosition(pageData,tourneeTitleToSkip){
   lines=lines.filter(function(l){return l.text.length>1;});
   // On exclut l'entete "Tournee / BON DE LIVRAISON / N BL" (situe au-dessus du cadre client, egalement a droite),
   // ainsi que le titre de tournee lui-meme quand il est sur sa propre ligne (ex: "EVENEMENTIEL").
-  var headerPattern=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl)/i;
+  var headerPattern=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl|adresse\s+(de\s+)?livraison\s*:?\s*$)/i;
   var candidats=lines.filter(function(l){return !headerPattern.test(l.text)&&(!tourneeTitleToSkip||l.text!==tourneeTitleToSkip);});
   if(!candidats.length)return'';
   // Le nom du client est la premiere ligne du cadre. S'il continue sur la ligne suivante
@@ -1932,6 +1987,7 @@ function load(date){
   }
 }
 function persist(list){
+  var previousList=state.deliveries||[];
   state.deliveries=list;
   var ts=new Date().toISOString();
   try{
@@ -1940,19 +1996,38 @@ function persist(list){
     state.errorMsg='Sauvegarde echouee (stockage plein). Liberez de la place ou contactez le support.';
     alert('⚠️ ATTENTION : la sauvegarde locale a echoue (memoire pleine). La derniere action n\'a peut-etre pas ete enregistree. Verifiez et reessayez.');
   }
-  // Les photos/PDF ne partent JAMAIS vers Firestore (un document Firestore est limite a 1 Mo :
-  // avec plusieurs livraisons ayant chacune photos+PDF, cette limite est vite atteinte et bloque
-  // alors TOUTE nouvelle sauvegarde du jour, meme l'ajout d'une simple livraison sans photo).
-  // On garde les photos/PDF en local uniquement, et on envoie une version allegee au cloud.
-  var lightList=list.map(function(d){
+  // Un document Firestore par LIVRAISON individuelle (au lieu d'un seul gros document par
+  // jour regroupant tout) : plus de limite pratique de nombre de BL/jour, chaque BL est
+  // independant. Les photos/PDF restent en local uniquement (trop volumineux, geres a part
+  // via fdj-attachments). On ne reecrit que les livraisons qui ont reellement change, pour
+  // ne pas multiplier inutilement les ecritures Firestore.
+  function lightCopy(d){
     var copy=Object.assign({},d);
     if(copy.photos&&copy.photos.length)copy.photos=copy.photos.map(function(p){return{at:p.at};});
     if(copy.blPdf)copy.blPdf=null;
+    copy.date=state.date;
     return copy;
+  }
+  var previousById={};
+  previousList.forEach(function(d){previousById[d.id]=d;});
+  var aSauvegarder=list.filter(function(d){
+    var avant=previousById[d.id];
+    if(!avant)return true;
+    return JSON.stringify(lightCopy(avant))!==JSON.stringify(lightCopy(d));
   });
+  var idsActuels={};
+  list.forEach(function(d){idsActuels[d.id]=true;});
+  var idsSupprimes=previousList.filter(function(d){return !idsActuels[d.id];}).map(function(d){return d.id;});
   function doFbSave(){
     if(window.fbReady){
-      window.fbSave('fdj-tournees', state.date, {deliveries:lightList, date:state.date, updatedAt:ts});
+      aSauvegarder.forEach(function(d){
+        var copy=lightCopy(d);
+        copy.updatedAt=ts;
+        window.fbSave('fdj-deliveries', d.id, copy);
+      });
+      idsSupprimes.forEach(function(id){
+        if(window.fbDelete)window.fbDelete('fdj-deliveries', id);
+      });
     } else {
       setTimeout(doFbSave, 500); // retry si Firebase pas prêt
     }
@@ -2002,15 +2077,54 @@ function ouvrirAlerteWhatsApp(d){
 }
 function finaliserPointage(id,liv,note,deliveryAvant){
   var livreurNom=liv?liv.name:(state.role==='livreur'?state.livreurName:'');
-  pointDelivery(id,{status:state.pendingOutcome,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note,contenants:getPendingContenants()});
+  var statutApplique=state.pendingOutcome;
+  var contenantsAppliques=getPendingContenants();
+  pointDelivery(id,{status:statutApplique,deliveredAt:new Date().toISOString(),livreur:livreurNom,livreurPhone:liv?liv.phone:'',note:note,contenants:contenantsAppliques});
   state.pendingContenants=null;
   captureGeoLocationAsync(id);
-  if(['absent','refused','incident'].indexOf(state.pendingOutcome)!==-1&&deliveryAvant){
-    ouvrirAlerteWhatsApp(Object.assign({},deliveryAvant,{status:state.pendingOutcome,livreur:livreurNom,note:note}));
+  if(['absent','refused','incident'].indexOf(statutApplique)!==-1&&deliveryAvant){
+    ouvrirAlerteWhatsApp(Object.assign({},deliveryAvant,{status:statutApplique,livreur:livreurNom,note:note}));
   }
   state.pendingNote='';
+  // Meme client + meme adresse, encore en attente : on propose d'appliquer le meme pointage
+  // aux autres BL du groupe (un seul arret physique chez le client), plutot que de forcer
+  // le livreur a repointer chacun individuellement.
+  var pointe=state.deliveries.find(function(d){return d.id===id;});
+  if(state.role==='livreur'&&pointe&&pointe.client&&pointe.address){
+    var autres=state.deliveries.filter(function(d){
+      return d.id!==id&&d.status==='pending'&&d.client===pointe.client&&d.address===pointe.address;
+    });
+    if(autres.length){
+      state.groupePointageData={
+        client:pointe.client,
+        autresIds:autres.map(function(d){return d.id;}),
+        statutApplique:statutApplique,
+        livreurNom:livreurNom,
+        livreurPhone:liv?liv.phone:'',
+        note:note,
+        contenants:contenantsAppliques,
+        photos:getDeliveryPhotos(pointe)
+      };
+      state.showGroupePointage=true;
+      state.selectedId=null;
+      render();
+      return;
+    }
+  }
   if(state.role==='livreur'){state.selectedId=null;render();}
   state.modifyMode=false;
+}
+function appliquerPointageGroupe(){
+  var g=state.groupePointageData;
+  if(!g)return;
+  var ts=new Date().toISOString();
+  persist(state.deliveries.map(function(d){
+    if(g.autresIds.indexOf(d.id)===-1)return d;
+    return Object.assign({},d,{status:g.statutApplique,deliveredAt:ts,livreur:g.livreurNom,livreurPhone:g.livreurPhone,note:g.note,contenants:g.contenants,photos:g.photos});
+  }));
+  state.showGroupePointage=false;
+  state.groupePointageData=null;
+  render();
 }
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
 function captureGeoLocationAsync(deliveryIds){
@@ -2562,7 +2676,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+='</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal()+renderGroupePointageModal();
   return html;
 }
 
@@ -2697,6 +2811,22 @@ function renderQrCardModal(){
   '</div></div>';
 }
 
+function renderGroupePointageModal(){
+  if(!state.showGroupePointage||!state.groupePointageData)return'';
+  var g=state.groupePointageData;
+  var n=g.autresIds.length;
+  var meta=STATUS_META[g.statutApplique]||{label:g.statutApplique};
+  var html='<div class="modal-overlay" data-action="noop"><div class="modal-sheet" data-action="noop" style="max-width:340px;">';
+  html+='<div style="text-align:center;padding:4px 0 14px;">';
+  html+='<div style="font-size:32px;margin-bottom:8px;">📍</div>';
+  html+='<div style="font-weight:800;font-size:15px;color:var(--ink);margin-bottom:10px;">Même client, même adresse</div>';
+  html+='<div style="font-size:14px;color:var(--ink-2);line-height:1.5;">'+n+' autre'+(n>1?'s':'')+' BL de <strong>'+esc(g.client)+'</strong> '+(n>1?'sont':'est')+' à la même adresse.<br>Appliquer le statut <strong>'+esc(meta.label)+'</strong> '+(g.photos&&g.photos.length?'et la photo ':'')+'à '+(n>1?'ces BL':'ce BL')+' aussi ?</div>';
+  html+='</div>';
+  html+='<button class="btn-outline" style="width:100%;margin-bottom:8px;" data-action="refuser-groupe-pointage">Non, un par un</button>';
+  html+='<button class="btn-primary" style="width:100%;" data-action="confirmer-groupe-pointage">✅ Oui, appliquer à tous</button>';
+  html+='</div></div>';
+  return html;
+}
 function renderCamionConfirmModal(){
   if(!state.showCamionConfirm||!state.camionConfirmData)return'';
   var d=state.camionConfirmData;
@@ -2953,14 +3083,13 @@ function renderTourneeDetailModal(){
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">'+items.length+' BL dans cette tournée</div>';
   if(items.some(function(d){return d.blPdf;}))html+='<button class="btn-outline" style="width:100%;margin-bottom:12px;" data-action="download-tournee-pdf" data-tournee="'+esc(tn)+'">📚 Télécharger le PDF groupé de la tournée</button>';
   if(state.role==='responsable'){
-    var dejaAssignee=items.some(function(d){return d.livreur;});
-    if(!dejaAssignee){
-      var opts='<option value="">— Choisir un livreur —</option>';
-      state.livreurs.forEach(function(l){opts+='<option value="'+esc(l.id)+'">'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
-      html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
-      html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 Assigner cette tournée</button>';
-    }
-    html+='<div style="font-size:11px;color:var(--ink-3);margin:-4px 0 16px;">Ouvrez un BL ci-dessous pour le consulter ou le réassigner individuellement.</div>';
+    var livreurActuelId='';
+    if(livreur){var trouve=state.livreurs.find(function(l){return l.name===livreur;});if(trouve)livreurActuelId=trouve.id;}
+    var opts='<option value="">— Choisir un livreur —</option>';
+    state.livreurs.forEach(function(l){opts+='<option value="'+esc(l.id)+'"'+(l.id===livreurActuelId?' selected':'')+'>'+esc(l.name)+(l.phone?' ('+esc(l.phone)+')':'')+'</option>';});
+    html+='<div class="field"><div class="field-label">👤 Livreur assigné</div><select id="tn-livreur-select">'+opts+'</select></div>';
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:16px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="assign-tournee-detail" data-tournee="'+esc(tn)+'">👤 '+(livreur?'Réassigner toute la tournée':'Assigner cette tournée')+'</button>';
+    html+='<div style="font-size:11px;color:var(--ink-3);margin:-4px 0 16px;">'+(livreur?'Seuls les BL encore en attente seront réassignés. ':'')+'Ouvrez un BL ci-dessous pour le consulter ou le réassigner individuellement.</div>';
   } else {
     if(allDelivered){
       html+='<div style="padding:10px 12px;background:var(--green-s);border:1px solid rgba(42,122,58,.25);border-radius:8px;color:var(--green);font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;">✅ Toute la tournée est marquée livrée</div>';
@@ -3022,7 +3151,26 @@ function renderResponsableApp(){
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
-function renderLivreurName(){return'<div class="login-form-photo"><div class="login-form-card"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-dark">Bonjour !</h1><p class="login-form-sub login-form-sub-dark">Votre prénom et nom pour continuer</p></div><label class="form-label form-label-white" style="color:var(--ink-3);">Prénom</label><input class="form-input form-input-white" id="l-prenom" type="text" placeholder="" value="'+esc(state.pendingLivreurPrenom||localStorage.getItem('fdj-livreur-prenom')||'')+'" /><label class="form-label form-label-white" style="color:var(--ink-3);margin-top:10px;">Nom</label><input class="form-input form-input-white" id="l-nom" type="text" placeholder="" value="'+esc(state.pendingLivreurNom||localStorage.getItem('fdj-livreur-nom')||'')+'" /><button class="form-btn-white" data-action="check-livreur-name">Continuer →</button><button class="form-back form-back-white" data-action="goto-choose">← Retour</button><p class="form-error form-error-white">'+esc(state.loginError)+'</p></div></div>';}
+function renderLivreurName(){
+  var saisieManuelle=state.showLivreurSaisieManuelle||state.livreurs.length===0;
+  var html='<div class="login-form-photo"><div class="login-form-card"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-dark">Bonjour !</h1><p class="login-form-sub login-form-sub-dark">'+(saisieManuelle?'Votre prénom et nom pour continuer':'Choisissez votre nom pour continuer')+'</p></div>';
+  if(!saisieManuelle){
+    html+='<label class="form-label form-label-white" style="color:var(--ink-3);">Votre nom</label>';
+    html+='<select class="form-input form-input-white" id="l-livreur-select">';
+    html+='<option value="">— Choisir —</option>';
+    state.livreurs.forEach(function(l){html+='<option value="'+l.id+'">'+esc(l.name)+'</option>';});
+    html+='<option value="__autre__">Autre / Nouveau livreur</option>';
+    html+='</select>';
+    html+='<button class="form-btn-white" data-action="check-livreur-select">Continuer →</button>';
+  } else {
+    html+='<label class="form-label form-label-white" style="color:var(--ink-3);">Prénom</label><input class="form-input form-input-white" id="l-prenom" type="text" placeholder="" value="'+esc(state.pendingLivreurPrenom||localStorage.getItem('fdj-livreur-prenom')||'')+'" />';
+    html+='<label class="form-label form-label-white" style="color:var(--ink-3);margin-top:10px;">Nom</label><input class="form-input form-input-white" id="l-nom" type="text" placeholder="" value="'+esc(state.pendingLivreurNom||localStorage.getItem('fdj-livreur-nom')||'')+'" />';
+    html+='<button class="form-btn-white" data-action="check-livreur-name">Continuer →</button>';
+    if(state.livreurs.length>0)html+='<button class="form-back form-back-white" data-action="goto-livreur-liste">← Retour à la liste</button>';
+  }
+  html+='<button class="form-back form-back-white" data-action="goto-choose">← Retour</button><p class="form-error form-error-white">'+esc(state.loginError)+'</p></div></div>';
+  return html;
+}
 
 function renderPassword(){return'<div class="login-form-photo"><div class="login-form-card login-form-card-teal"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-light">Accès responsable</h1><p class="login-form-sub login-form-sub-light">Mot de passe requis</p></div><label class="form-label form-label-teal">Mot de passe</label><input class="form-input form-input-teal" id="l-pwd" type="password" placeholder="••••••••" /><button class="form-btn-teal" data-action="do-resp-login">Entrer</button><button class="form-back form-back-teal" data-action="goto-choose">← Retour</button><p class="form-error form-error-teal">'+esc(state.loginError)+'</p></div></div>';}
 
@@ -3039,6 +3187,24 @@ document.getElementById('app').addEventListener('click',function(e){var el=e.tar
 if(action==='goto-choose'){state.screen='choose';state.loginError='';render();return;}
 if(action==='goto-password'){state.screen='password';state.loginError='';render();return;}
 if(action==='goto-livreur-name'){state.screen='livreur-name';state.loginError='';render();return;}
+if(action==='check-livreur-select'){
+  var sel=document.getElementById('l-livreur-select').value;
+  if(!sel){state.loginError='Choisissez votre nom dans la liste.';render();return;}
+  if(sel==='__autre__'){state.showLivreurSaisieManuelle=true;state.loginError='';render();return;}
+  var liv=getLivreurById(sel);
+  if(!liv){state.loginError='Livreur introuvable.';render();return;}
+  state.livreurName=liv.name;
+  localStorage.setItem('fdj-livreur',liv.name);
+  state.livreurId=liv.id;
+  sessionStorage.setItem('fdj-role','livreur');
+  sessionStorage.setItem('fdj-livreur-id',liv.id);
+  state.role='livreur';
+  state.screen='app';
+  state.loginError='';
+  load(state.date);
+  return;
+}
+if(action==='goto-livreur-liste'){state.showLivreurSaisieManuelle=false;state.loginError='';render();return;}
 if(action==='check-livreur-name'){
   var prenom=(document.getElementById('l-prenom').value||'').trim();
   var nom=(document.getElementById('l-nom').value||'').trim();
@@ -3156,7 +3322,7 @@ if(action==='delete-selected'){
   }
   return;
 }
-if(action==='do-resp-login'){var pwd=document.getElementById('l-pwd').value;if(pwd===MOT_DE_PASSE){sessionStorage.setItem('fdj-role','responsable');state.role='responsable';state.screen='app';state.loginError='';load(state.date);}else{state.loginError='Mot de passe incorrect.';render();}return;}
+if(action==='do-resp-login'){var pwd=document.getElementById('l-pwd').value;if(pwd===MOT_DE_PASSE){sessionStorage.setItem('fdj-role','responsable');state.role='responsable';state.screen='app';state.loginError='';load(state.date);runCleanupIfDue();}else{state.loginError='Mot de passe incorrect.';render();}return;}
 if(action==='logout'){if(state.role==='livreur')saveCamionFields();sessionStorage.removeItem('fdj-role');sessionStorage.removeItem('fdj-livreur-id');state.role=null;state.screen='choose';state.livreurId=null;state.loginError='';render();return;}
 if(action==='save-camion'){
   var camIdSave=el.getAttribute('data-cam-id');
@@ -3542,6 +3708,8 @@ else if(action==='delete-photo'){
   var photoIdx=parseInt(el.getAttribute('data-photo-idx'),10);
   if(!isNaN(photoIdx)&&confirm('Supprimer cette photo ?')){deleteDeliveryPhoto(id,photoIdx);}
 }
+else if(action==='confirmer-groupe-pointage'){appliquerPointageGroupe();}
+else if(action==='refuser-groupe-pointage'){state.showGroupePointage=false;state.groupePointageData=null;render();}
 else if(action==='clear-sig'){clearSignature();}
 else if(action==='clear-sig-cam'){
   var camIdClear=el.getAttribute('data-cam-id');
