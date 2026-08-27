@@ -2521,12 +2521,16 @@ function renderGroupedDeliveryRows(items){
     var premierStatut=g.items[0].status;
     var tousMemeStatut=g.items.every(function(d){return d.status===premierStatut;});
     var meta=tousMemeStatut?STATUS_META[premierStatut]:null;
-    var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+esc(meta.label)+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
-    var html='<button class="delivery-row" data-action="toggle-groupe-bl" data-id="'+groupeId+'">'+
+    var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+g.items.length+' BL '+esc(meta.label)+(meta.label.slice(-1)!=='s'?'s':'')+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
+    var html='<div class="delivery-row-wrap"><button class="delivery-row" data-action="toggle-groupe-bl" data-id="'+groupeId+'" style="flex:1;">'+
       '<div class="row-indicator '+(meta?meta.ind:'ind-pending')+'"></div><div class="row-body">'+
       '<div class="row-client-line">📦 '+esc(g.client)+' <span style="color:var(--ink-3);font-weight:400;">('+g.items.length+' BL)</span></div>'+
       '<div class="row-top">'+statutAffiche+'<span style="color:var(--ink-3);font-size:12px;">'+(estOuvert?' ▲':' ▼')+'</span></div>'+
       '<div class="row-address">'+esc(g.address)+'</div></div></button>';
+    if(state.role==='livreur'&&nbEnAttente>0){
+      html+='<button class="btn-outline" style="flex:0 0 auto;padding:8px 10px;font-size:11px;white-space:nowrap;align-self:center;margin-right:8px;" data-action="marquer-groupe-livre" data-id="'+groupeId+'">📍 Tout livré</button>';
+    }
+    html+='</div>';
     if(estOuvert){
       html+='<div style="padding-left:10px;border-left:2px solid var(--rule);margin:2px 0 8px 14px;">'+g.items.map(deliveryRow).join('')+'</div>';
     }
@@ -3608,6 +3612,23 @@ if(action==='send-wa-other'){
 
 if(action==='toggle-livreur-pending'){state._livreurPendingExpanded=(state._livreurPendingExpanded===id)?null:id;render();return;}
 if(action==='toggle-groupe-bl'){state._groupeOuvert=(state._groupeOuvert===id)?null:id;render();return;}
+if(action==='marquer-groupe-livre'){
+  var candidatsGroupe=state.deliveries.filter(function(d){
+    var cleGroupe='grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_');
+    return cleGroupe===id&&d.status==='pending';
+  });
+  if(!candidatsGroupe.length)return;
+  if(!confirm('Marquer les '+candidatsGroupe.length+' BL de "'+candidatsGroupe[0].client+'" comme livrés ?'))return;
+  var livG=getLivreurById(state.livreurId);
+  var tsG=new Date().toISOString();
+  var idsGroupe=candidatsGroupe.map(function(d){return d.id;});
+  persist(state.deliveries.map(function(d){
+    if(idsGroupe.indexOf(d.id)===-1)return d;
+    return Object.assign({},d,{status:'delivered',deliveredAt:tsG,livreur:livG?livG.name:state.livreurName,livreurPhone:livG?livG.phone:''});
+  }));
+  render();
+  return;
+}
 if(action==='open-detail-from-livreurs'){state.showLivreurs=false;state.selectedId=id;state.selectedTourneeNum=null;render();return;}
 if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
   deleteLivreur(id);
