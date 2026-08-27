@@ -631,7 +631,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -2516,25 +2516,42 @@ function renderGroupedDeliveryRows(items){
     var g=groupes[cle];
     if(g.items.length===1)return deliveryRow(g.items[0]);
     var groupeId='grp_'+cle.replace(/[^a-zA-Z0-9]/g,'_');
-    var estOuvert=state._groupeOuvert===groupeId;
     var nbEnAttente=g.items.filter(function(d){return d.status==='pending';}).length;
     var premierStatut=g.items[0].status;
     var tousMemeStatut=g.items.every(function(d){return d.status===premierStatut;});
     var meta=tousMemeStatut?STATUS_META[premierStatut]:null;
     var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+esc(meta.label)+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
-    var html='<button class="delivery-row" data-action="toggle-groupe-bl" data-id="'+groupeId+'">'+
+    return '<button class="delivery-row" data-action="open-groupe-detail" data-id="'+groupeId+'">'+
       '<div class="row-indicator '+(meta?meta.ind:'ind-pending')+'"></div><div class="row-body">'+
       '<div class="row-client-line">📦 '+esc(g.client)+' <span style="color:var(--ink-3);font-weight:400;">('+g.items.length+' BL)</span></div>'+
-      '<div class="row-top">'+statutAffiche+'<span style="color:var(--ink-3);font-size:12px;">'+(estOuvert?' ▲':' ▼')+'</span></div>'+
+      '<div class="row-top">'+statutAffiche+'</div>'+
       '<div class="row-address">'+esc(g.address)+'</div></div></button>';
-    if(state.role==='livreur'&&nbEnAttente>0){
-      html+='<button class="btn-outline" style="width:100%;margin:-2px 0 6px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="marquer-groupe-livre" data-id="'+groupeId+'">📍 Tous les BL livrés ('+nbEnAttente+')</button>';
-    }
-    if(estOuvert){
-      html+='<div style="padding-left:10px;border-left:2px solid var(--rule);margin:2px 0 8px 14px;">'+g.items.map(deliveryRow).join('')+'</div>';
-    }
-    return html;
   }).join('');
+}
+function renderGroupeDetailModal(){
+  if(!state.selectedGroupeId)return'';
+  var groupeId=state.selectedGroupeId;
+  var items=state.deliveries.filter(function(d){return('grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_'))===groupeId;});
+  if(!items.length){state.selectedGroupeId=null;return'';}
+  var premier=items[0];
+  var nbEnAttente=items.filter(function(d){return d.status==='pending';}).length;
+  var html='<div class="modal-overlay" data-action="close-groupe-detail"><div class="modal-sheet" data-action="noop">';
+  html+='<div class="modal-head"><h2 class="modal-title">📦 '+esc(premier.client)+'</h2><button class="modal-close" data-action="close-groupe-detail">←</button></div>';
+  html+='<div class="info-row"><span>📍</span><div>'+esc(premier.address)+'<br><a class="maps-link" href="'+mapsUrl(premier.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';
+  html+='<div class="field-label" style="margin-top:10px;">'+items.length+' BL à cette adresse</div>';
+  html+='<div style="border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin:4px 0 14px;">'+items.map(function(d,idx){
+    var meta=STATUS_META[d.status];
+    return '<div data-action="open-detail-from-groupe" data-id="'+d.id+'" style="display:flex;justify-content:space-between;align-items:center;padding:9px 10px;cursor:pointer;'+(idx>0?'border-top:1px solid var(--rule);':'')+'"><span style="font-size:12.5px;">'+esc(d.blNum||d.ref||('BL '+(idx+1)))+'</span><span style="font-size:11px;font-weight:700;color:'+meta.fg+';">'+esc(meta.label).toUpperCase()+'</span></div>';
+  }).join('')+'</div>';
+  if(state.role==='livreur'&&nbEnAttente>0){
+    html+='<button class="btn-outline" style="width:100%;margin-bottom:14px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="marquer-groupe-livre" data-id="'+groupeId+'">📍 Tous les BL livrés ('+nbEnAttente+')</button>';
+  }
+  if(state.role==='livreur'){
+    html+=renderContenantsSection(premier);
+    html+='<button class="btn-primary" style="width:100%;margin-top:12px;" data-action="valider-caisses-groupe" data-id="'+groupeId+'">✅ Enregistrer les caisses</button>';
+  }
+  html+='</div></div>';
+  return html;
 }
 function deliveryRow(d){
   var meta=STATUS_META[d.status];
@@ -2717,7 +2734,7 @@ function renderLivreurApp(){
     '</div>';
   }
   html+='</div>';
-  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal()+renderGroupePointageModal();
+  html+=renderDetailModal()+renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCamionConfirmModal()+renderGroupePointageModal()+renderGroupeDetailModal();
   return html;
 }
 
@@ -3227,7 +3244,7 @@ function renderResponsableApp(){
   html+='<button class="btn-outline" style="width:calc(100% - 32px);margin:12px 16px;background:var(--amber-l,#FEF4E6);border-color:var(--amber);color:var(--amber-d,#8A5A10);font-weight:700;" data-action="export-commande-globale">📦 Générer la commande globale (Excel)</button>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderWaPickerModal()+renderPhotoReminderModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderDetailModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderGroupeDetailModal();
   return html;
 }
 function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
@@ -3610,21 +3627,60 @@ if(action==='send-wa-other'){
 }
 
 if(action==='toggle-livreur-pending'){state._livreurPendingExpanded=(state._livreurPendingExpanded===id)?null:id;render();return;}
-if(action==='toggle-groupe-bl'){state._groupeOuvert=(state._groupeOuvert===id)?null:id;render();return;}
+if(action==='open-groupe-detail'){
+  state.selectedGroupeId=id;
+  var itemsGroupe=state.deliveries.filter(function(d){return('grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_'))===id;});
+  var premier=itemsGroupe[0];
+  state.pendingContenants=null; // reinitialise, puis pre-rempli depuis le 1er BL du groupe (qui porte les caisses)
+  if(premier&&premier.contenants){
+    state.pendingContenants={};
+    CONTENANTS.forEach(function(c){state.pendingContenants[c.key]=Object.assign({livre:0,recupere:0},premier.contenants[c.key]||{});});
+  }
+  render();
+  return;
+}
 if(action==='marquer-groupe-livre'){
-  var candidatsGroupe=state.deliveries.filter(function(d){
+  var tousElementsGroupe=state.deliveries.filter(function(d){
     var cleGroupe='grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_');
-    return cleGroupe===id&&d.status==='pending';
+    return cleGroupe===id;
   });
+  var candidatsGroupe=tousElementsGroupe.filter(function(d){return d.status==='pending';});
   if(!candidatsGroupe.length)return;
   if(!confirm('Marquer les '+candidatsGroupe.length+' BL de "'+candidatsGroupe[0].client+'" comme livrés ?'))return;
   var livG=getLivreurById(state.livreurId);
   var tsG=new Date().toISOString();
   var idsGroupe=candidatsGroupe.map(function(d){return d.id;});
+  var premierIdGroupe=tousElementsGroupe[0].id;
+  var contenantsAAppliquer=state.pendingContenants; // les caisses saisies dans l'ecran de groupe, s'il y en a
   persist(state.deliveries.map(function(d){
-    if(idsGroupe.indexOf(d.id)===-1)return d;
-    return Object.assign({},d,{status:'delivered',deliveredAt:tsG,livreur:livG?livG.name:state.livreurName,livreurPhone:livG?livG.phone:''});
+    var estPremier=contenantsAAppliquer&&d.id===premierIdGroupe;
+    if(idsGroupe.indexOf(d.id)===-1){
+      return estPremier?Object.assign({},d,{contenants:contenantsAAppliquer}):d;
+    }
+    var maj=Object.assign({},d,{status:'delivered',deliveredAt:tsG,livreur:livG?livG.name:state.livreurName,livreurPhone:livG?livG.phone:''});
+    if(estPremier)maj.contenants=contenantsAAppliquer;
+    return maj;
   }));
+  state.pendingContenants=null;
+  state.selectedGroupeId=null;
+  render();
+  return;
+}
+if(action==='close-groupe-detail'){state.selectedGroupeId=null;state.pendingContenants=null;render();return;}
+if(action==='open-detail-from-groupe'){state.selectedGroupeId=null;state.selectedId=id;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;render();return;}
+if(action==='valider-caisses-groupe'){
+  var itemsGroupeC=state.deliveries.filter(function(d){
+    var cleGroupe='grp_'+(d.client+'|'+d.address).replace(/[^a-zA-Z0-9]/g,'_');
+    return cleGroupe===id;
+  });
+  if(!itemsGroupeC.length)return;
+  var premierIdC=itemsGroupeC[0].id;
+  var contenantsC=getPendingContenants();
+  persist(state.deliveries.map(function(d){
+    if(d.id!==premierIdC)return d;
+    return Object.assign({},d,{contenants:contenantsC});
+  }));
+  state.pendingContenants=null;
   render();
   return;
 }
