@@ -631,7 +631,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null};
+var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;}
@@ -1725,35 +1725,43 @@ function extractClientNameByPosition(pageData,tourneeTitleToSkip){
   });
   lines.sort(function(a,b){return b.y-a.y;}); // haut de page en premier
   lines=lines.filter(function(l){return l.text.length>1;});
-  // On exclut l'entete "Tournee / BON DE LIVRAISON / N BL" (situe au-dessus du cadre client, egalement a droite),
-  // ainsi que le titre de tournee lui-meme quand il est sur sa propre ligne (ex: "EVENEMENTIEL").
-  var headerPattern=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl|adresse\s+(de\s+)?livraison\s*:?\s*$)/i;
-  var candidats=lines.filter(function(l){return !headerPattern.test(l.text)&&(!tourneeTitleToSkip||l.text!==tourneeTitleToSkip);});
+  // On exclut uniquement les entetes structurels (Tournee / BON DE LIVRAISON / N BL), toujours
+  // situes AU-DESSUS du cadre client, jamais dedans.
+  var headerStrict=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl)/i;
+  var candidats=lines.filter(function(l){return !headerStrict.test(l.text)&&(!tourneeTitleToSkip||l.text!==tourneeTitleToSkip);});
   if(!candidats.length)return'';
-  // Le nom du client est la premiere ligne du cadre. S'il continue sur la ligne suivante
-  // (ex: "SAS 5 CHAMBRES EN VILLE (LA" + "PARENTHESE)", ou "LE CYRANO" + "HOTEL RAVEL"),
-  // on la fusionne SAUF si cette 2e ligne est en realite le debut de l'adresse.
-  // Pour reconnaitre une adresse de facon robuste (sans dependre d'une liste de mots-cles
-  // forcement incomplete), on combine plusieurs signaux structurels, du plus fiable au moins fiable :
-  //  1) la ligne commence par un numero (ex: "8 RUE...", "28 Avenue...") -> valable quel que soit le type de voie
-  //  2) la ligne d'APRES est un code postal (5 chiffres) -> l'adresse precede toujours le code postal
-  //  3) la ligne est elle-meme un code postal + ville, ou un "Tel:"/"Mob:"
-  //  4) en dernier recours, une liste de mots-cles de voirie usuels
   var motsAdresse=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc|zone industrielle|zone d.activit[eé]|zone artisanale|z\.?i\.?|z\.?a\.?c?\.?|r\.?n\.?|r\.?d\.?|c\.?d\.?)\b/i;
   var debutNumero=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
   var codePostal=/^\d{4,5}\s/;
   var telMob=/^(tel|mob|t[eé]l)\s*:/i;
-  function ligneEstAdresse(texte,ligneApres){
-    if(debutNumero.test(texte))return true;
-    if(codePostal.test(texte))return true;
-    if(telMob.test(texte))return true;
-    if(motsAdresse.test(texte))return true;
-    if(ligneApres&&codePostal.test(ligneApres))return true;
-    return false;
+  var etiquette=/:\s*$|^adresse\s+(de\s+)?livraison\s*:?\s*$/i;
+  function estComposantAdresse(texte){
+    return debutNumero.test(texte)||codePostal.test(texte)||telMob.test(texte)||motsAdresse.test(texte);
   }
-  var morceaux=[candidats[0].text];
-  if(candidats.length>1&&!ligneEstAdresse(candidats[1].text,candidats[2]?candidats[2].text:'')){
-    morceaux.push(candidats[1].text);
+  // Strategie principale, robuste face a n'importe quel libelle inconnu place avant le nom
+  // (ex: "Adresse de livraison :") : on s'ancre sur le code postal, tres fiable et toujours
+  // present juste apres l'adresse, puis on remonte : d'abord on saute les lignes d'adresse,
+  // puis on collecte toutes les lignes de nom consecutives (ni adresse, ni etiquette), en
+  // s'arretant des qu'on rencontre une etiquette, un entete deja exclu, ou le haut du cadre.
+  var idxCP=-1;
+  for(var k=0;k<candidats.length;k++){if(codePostal.test(candidats[k].text)){idxCP=k;break;}}
+  if(idxCP>0){
+    var i=idxCP-1;
+    while(i>=0&&estComposantAdresse(candidats[i].text))i--;
+    var nomLignes=[];
+    while(i>=0&&!estComposantAdresse(candidats[i].text)&&!etiquette.test(candidats[i].text)){
+      nomLignes.unshift(candidats[i].text);
+      i--;
+    }
+    if(nomLignes.length)return nomLignes.join(' ');
+  }
+  // Repli (pas de code postal detecte, cas rare) : on reprend l'ancienne logique en avant,
+  // en sautant d'abord une eventuelle etiquette isolee (ex: "Adresse de livraison :").
+  var candidatsSansEtiquette=candidats.filter(function(l){return !etiquette.test(l.text);});
+  if(!candidatsSansEtiquette.length)return'';
+  var morceaux=[candidatsSansEtiquette[0].text];
+  if(candidatsSansEtiquette.length>1&&!estComposantAdresse(candidatsSansEtiquette[1].text)){
+    morceaux.push(candidatsSansEtiquette[1].text);
   }
   return morceaux.join(' ');
 }
@@ -2888,7 +2896,21 @@ function renderScannerModal(){
     '</div>'+
   '</div>';
 }
-function renderLivreursModal(){if(!state.showLivreurs)return'';var livItems=state.livreurs.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun livreur enregistré.</p>':'<div class="livreur-list">'+state.livreurs.map(function(l){return'<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+'</div><div style="display:flex;gap:6px;"><button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div></div>';}).join('')+'</div>';
+function renderLivreursModal(){if(!state.showLivreurs)return'';
+  var livItems=state.livreurs.length===0?'<p style="color:var(--ink-3);font-size:13px;text-align:center;padding:16px 0;">Aucun livreur enregistré.</p>':'<div class="livreur-list">'+state.livreurs.map(function(l){
+    var enAttente=state.deliveries.filter(function(d){return d.livreur===l.name&&d.status==='pending';});
+    var estOuvert=state._livreurPendingExpanded===l.id;
+    var html='<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(l.name)+'</div>'+(l.phone?'<a class="livreur-phone" href="tel:'+esc(l.phone)+'">📞 '+esc(l.phone)+'</a>':'<span class="livreur-phone">Pas de téléphone</span>')+'</div><div style="display:flex;gap:6px;align-items:center;">'+
+      (enAttente.length?'<button class="btn-outline" style="padding:5px 10px;font-size:11px;white-space:nowrap;" data-action="toggle-livreur-pending" data-id="'+l.id+'">📋 '+enAttente.length+' en attente'+(estOuvert?' ▲':' ▼')+'</button>':'<span style="font-size:11px;color:var(--ink-3);">Rien en attente</span>')+
+      '<button class="livreur-del" data-action="delete-livreur" data-id="'+l.id+'">🗑</button></div></div>';
+    if(estOuvert&&enAttente.length){
+      html+='<div style="background:var(--paper-2);border-radius:8px;padding:8px;margin:-2px 0 10px;">'+enAttente.map(function(d){
+        return'<div class="livreur-pending-row" data-action="open-detail-from-livreurs" data-id="'+d.id+'" style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<span>'+esc(d.client)+(d.tourneeNum?' <span style="color:var(--ink-3);">· Tournée '+esc(d.tourneeNum)+'</span>':'')+'</span><span style="color:var(--teal);font-weight:700;">→</span></div>';
+      }).join('')+'</div>';
+    }
+    return html;
+  }).join('')+'</div>';
   var waItems=state.waContacts.length===0?'<p style="color:var(--ink-3);font-size:12px;text-align:center;padding:8px 0;">Aucun contact d\'alerte enregistré. Le livreur choisira le destinataire à chaque fois via WhatsApp.</p>':'<div class="livreur-list">'+state.waContacts.map(function(c){return'<div class="livreur-item"><div class="livreur-info"><div class="livreur-name">'+esc(c.nom)+'</div><span class="livreur-phone">📱 '+esc(c.numero)+'</span></div><div style="display:flex;gap:6px;"><button class="livreur-del" data-action="delete-wa-contact" data-id="'+c.id+'">🗑</button></div></div>';}).join('')+'</div>';
   var waSection='<div class="divider"></div><div class="section-lbl">📱 Contacts d\'alerte WhatsApp (Absent / Refusé / Incident)</div>'+
     '<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Personnes ou groupes à proposer au livreur quand il signale un problème.</p>'+
@@ -3529,6 +3551,8 @@ if(action==='send-wa-other'){
   return;
 }
 
+if(action==='toggle-livreur-pending'){state._livreurPendingExpanded=(state._livreurPendingExpanded===id)?null:id;render();return;}
+if(action==='open-detail-from-livreurs'){state.showLivreurs=false;state.selectedId=id;state.selectedTourneeNum=null;render();return;}
 if(action==='delete-livreur'){if(confirm('Supprimer ce livreur ?')){
   deleteLivreur(id);
   // Supprimer aussi dans Firebase
