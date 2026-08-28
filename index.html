@@ -1609,6 +1609,7 @@ function exportCommandeGlobale(){
   var aoaRows=styledSheetRows(['Produit','Quantite totale'],dataRows,totalRow);
   var ws=XLSX.utils.aoa_to_sheet(aoaRows);
   ws['!cols']=[{wch:32},{wch:16}];ws['!freeze']={ySplit:1};
+  ws['!autofilter']={ref:'A1:B'+aoaRows.length};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Commande globale');
   XLSX.writeFile(wb,'commande-globale-'+state.date+'.xlsx');
 }
@@ -1632,6 +1633,7 @@ function exportCaissesNonRetournees(){
   var aoaRows=styledSheetRows(headers,dataRows);
   var ws=XLSX.utils.aoa_to_sheet(aoaRows);
   ws['!cols']=[{wch:16},{wch:14},{wch:14},{wch:36},{wch:18},{wch:12}];ws['!freeze']={ySplit:1};
+  ws['!autofilter']={ref:'A1:F'+aoaRows.length};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Caisses non retournees');
   XLSX.writeFile(wb,'caisses-non-retournees-'+state.date+'.xlsx');
 }
@@ -1678,6 +1680,8 @@ function exportExcel(dateFrom, dateTo){
   var ws2=XLSX.utils.aoa_to_sheet(styledSheetRows(rows2[0],rows2.slice(1)));
   ws1['!cols']=autoFitCols(rows1);ws1['!freeze']={ySplit:1};
   ws2['!cols']=autoFitCols(rows2);ws2['!freeze']={ySplit:1};
+  ws1['!autofilter']={ref:'A1:'+String.fromCharCode(64+rows1[0].length)+rows1.length};
+  ws2['!autofilter']={ref:'A1:'+String.fromCharCode(64+rows2[0].length)+rows2.length};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws1,'Livraisons');XLSX.utils.book_append_sheet(wb,ws2,'Camions par livreur');
   var suffix=dateFrom===dateTo?dateFrom:(dateFrom+'-au-'+dateTo);
   XLSX.writeFile(wb,'tournee-'+suffix+'.xlsx');
@@ -1913,6 +1917,42 @@ function extractClientName(text){
   return '';
 }
 var looksLikeInstruction=/\b(avant|apr[eè]s|entre\s.+\set\s|code|digicode|porte|sonner|pr[eé]venir|attention|merci|svp|s\.?v\.?p\.?|noter|livraison\s|interphone|gardien|accueil|escalier|[eé]tage|batiment|b[aâ]timent)\b/i;
+// Extraction des produits ancree sur la position reelle des colonnes "Designation" et
+// "Quantite" (comme pour le nom du client) : un produit n'est retenu QUE s'il y a une
+// vraie valeur dans la colonne Quantite, en face de son texte dans la colonne Designation.
+// Plus robuste que l'ancienne methode par texte a plat, qui pouvait a tort capter une
+// adresse ou toute autre ligne se terminant par un nombre, meme hors du tableau.
+function extractProductsByPosition(pageData){
+  if(!pageData||!pageData.items||!pageData.items.length)return null;
+  var items=pageData.items.filter(function(it){return it.str&&it.str.trim();});
+  var enteteDesignation=items.find(function(it){return /^d[eé]signation$/i.test(it.str.trim());});
+  var enteteQuantite=items.find(function(it){return /^quantit[eé]$/i.test(it.str.trim());});
+  if(!enteteDesignation||!enteteQuantite)return null; // entetes introuvables -> repli sur l'ancienne methode
+  var xDesignation=enteteDesignation.x,xQuantite=enteteQuantite.x,yEntete=enteteDesignation.y;
+  // Items sous l'entete uniquement (y strictement inferieur, l'axe Y du PDF remonte vers le haut)
+  var itemsSousEntete=items.filter(function(it){return it.y<yEntete-2;});
+  var lignes=[];
+  itemsSousEntete.forEach(function(it){
+    var ligne=lignes.filter(function(l){return Math.abs(l.y-it.y)<3;})[0];
+    if(!ligne){ligne={y:it.y,items:[]};lignes.push(ligne);}
+    ligne.items.push(it);
+  });
+  lignes.sort(function(a,b){return b.y-a.y;});
+  var produits=[];
+  lignes.forEach(function(ligne){
+    var itemsDesignation=ligne.items.filter(function(it){return it.x>=xDesignation-5&&it.x<xQuantite-5;});
+    var itemsQuantite=ligne.items.filter(function(it){return it.x>=xQuantite-5;});
+    if(!itemsDesignation.length||!itemsQuantite.length)return; // pas de quantite en face -> pas un produit
+    itemsDesignation.sort(function(a,b){return a.x-b.x;});
+    var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
+    var texteQuantite=itemsQuantite.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
+    var qte=parseInt(texteQuantite.replace(/[^\d]/g,''),10);
+    if(nomDesignation.length>1&&qte>0){
+      produits.push({name:nomDesignation,qty:qte});
+    }
+  });
+  return produits.length?produits:null;
+}
 function extractProducts(text,tourneeTitleToSkip){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var products=[];
@@ -2018,7 +2058,7 @@ function importBlPdfsBulk(fileList){
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
         var clientName=extractClientNameByPosition(res.pageData,tourneeInfo.tourneeTitle)||extractClientName(text);
-        var products=extractProducts(text,tourneeInfo.tourneeTitle);
+        var products=extractProductsByPosition(res.pageData)||extractProducts(text,tourneeInfo.tourneeTitle);
         var consigne=extractConsigne(text,tourneeInfo.tourneeTitle);
         var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
         if(existing){
