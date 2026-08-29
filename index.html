@@ -508,8 +508,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .row-check{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;cursor:pointer;accent-color:var(--red);z-index:5;}
 .sel-mode .delivery-row .row-body{padding-left:36px;}
 .btn-sel-mode{padding:6px 10px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;background:var(--paper-2);border:1px solid var(--rule);color:var(--ink-2);letter-spacing:.04em;}
-.toast-caisses{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1A1208;color:#FCE788;font-size:13px;font-weight:700;padding:12px 18px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:999;max-width:88vw;text-align:center;cursor:pointer;animation:toastIn .25s ease;}
-@keyframes toastIn{0%{opacity:0;transform:translateX(-50%) translateY(8px);}100%{opacity:1;transform:translateX(-50%) translateY(0);}}
 
 /* ===== RESPONSIVE (consolidated) ===== */
 @media(min-width:640px){.modal-overlay{align-items:center;}.modal-sheet{border-radius:18px;border:3px solid var(--ink);max-width:600px;}.shell{max-width:860px;}.app-header{padding:24px 24px 0;}.app-sub{padding:10px 24px;}.date-row .date-center{font-size:15px;}.date-arr{width:50px;height:50px;font-size:22px;}.stats-strip .stat-num{font-size:30px;}.stats-strip .stat-lbl{font-size:10px;}.stat-cell{padding:14px 8px 10px;}.row-body{padding:13px 24px 13px 16px;}.row-client{font-size:15px;}.row-address{font-size:12px;}.hour-head{padding:10px 24px 8px;}.resp-action{padding:14px 8px;}.resp-action-icon{font-size:22px;}.resp-action-lbl{font-size:9px;}.camion-card{margin:16px;border-radius:12px;}.camion-finput{font-size:14px;padding:10px;}.btn-photo-brand{font-size:40px;}.rnav-btn{padding:12px 8px;}.rnav-icon{font-size:22px;}.rnav-lbl{font-size:9px;}.delivery-row{border-radius:6px;margin-bottom:3px;}.resp-actions .resp-action{padding:14px 8px;}.livreur-list .livreur-item{padding:14px 18px;}.livreur-name{font-size:15px;}}
@@ -780,7 +778,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurAccessToken:null,toastMessage:null,livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
+var state={screen:'choose',role:null,loginError:'',livreurAccessToken:null,livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;runCleanupIfDue();}
@@ -1794,8 +1792,8 @@ function parseProductItemsStrict(ref){
     if(looksLikeInstruction.test(p))return; // une consigne (ex: "LIVRAISON AVANT 8H00 - CODE 1234") n'est jamais un produit
     var m1=p.match(/^(.+?)\s+[xX]\s*(\d+)$/);
     var m2=p.match(/^(\d+)\s+[xX]?\s+(.+)$/);
-    if(m1&&!ressembleAUneAdresse(m1[1].trim())){out.push({name:m1[1].trim(),qty:parseInt(m1[2])});}
-    else if(m2&&!ressembleAUneAdresse(m2[2].trim())){out.push({name:m2[2].trim(),qty:parseInt(m2[1])});}
+    if(m1&&estUnNomDeProduitPlausible(m1[1].trim())){out.push({name:m1[1].trim(),qty:parseInt(m1[2])});}
+    else if(m2&&estUnNomDeProduitPlausible(m2[2].trim())){out.push({name:m2[2].trim(),qty:parseInt(m2[1])});}
   });
   return out;
 }
@@ -2020,10 +2018,18 @@ var looksLikeInstruction=/\b(avant|apr[eè]s|entre\s.+\set\s|code|digicode|porte
 var motsAdresseProduits=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc)\b/i;
 var debutNumeroRue=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
 var codePostalVille=/^\d{4,5}\s/;
-var looksLikeFooterZone=/\biban\b|\bbic\b|relev[eé]\s*d.identit[eé]|\brib\b|\bsiret\b|\bsiren\b|tva\s*intra|capital\s*social|\bsnc\b|\bsarl\b|\bsas\b|\beurl\b|\bsci\b|soci[eé]t[eé]/i;
+var looksLikeFooterZone=/\biban\b|\bbic\b|relev[eé]\s*d.identit[eé]|\brib\b|\bsiret\b|\bsiren\b|\btva\b|capital\s*social|\bsnc\b|\bsarl\b|\bsas\b|\beurl\b|\bsci\b|soci[eé]t[eé]/i;
 var looksLikeTotal=/^(sous[- ]?)?total\b/i;
+var contientUneLettre=/[a-zA-ZÀ-ÿ]/;
 function ressembleAUneAdresse(texte){
   return motsAdresseProduits.test(texte)||debutNumeroRue.test(texte)||codePostalVille.test(texte)||looksLikeFooterZone.test(texte)||looksLikeTotal.test(texte);
+}
+// Un vrai nom de produit contient toujours au moins une lettre (jamais juste un numero de rue,
+// de page, de reference isole...) : cette regle, purement structurelle, rejette ce genre de
+// nombre isole quelle que soit sa position ou le BL d'origine, sans avoir besoin de deviner
+// a l'avance tous les libelles possibles.
+function estUnNomDeProduitPlausible(texte){
+  return contientUneLettre.test(texte)&&!ressembleAUneAdresse(texte);
 }
 // Extraction des produits ancree sur la position reelle des colonnes "Designation" et
 // "Quantite" (comme pour le nom du client) : un produit n'est retenu QUE s'il y a une
@@ -2070,7 +2076,7 @@ function extractProductsByPosition(pageData){
     if(!itemsDesignation.length)continue; // rien en face dans Designation -> on ignore
     itemsDesignation.sort(function(a,b){return a.x-b.x;});
     var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
-    if(nomDesignation.length>1&&!ressembleAUneAdresse(nomDesignation)){
+    if(nomDesignation.length>1&&estUnNomDeProduitPlausible(nomDesignation)){
       produits.push({name:nomDesignation,qty:qte});
     }
   }
@@ -2087,13 +2093,13 @@ function extractProducts(text,tourneeTitleToSkip){
     if(looksLikeInstruction.test(l))continue; // une consigne (ex: "LIVRAISON AVANT 8H00 - CODE 1234") n'est jamais un produit, meme si elle se termine par un nombre
     // Quantite sur la meme ligne : "Boule T80 65"
     var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
-    if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2&&!ressembleAUneAdresse(m1[1].trim())){
+    if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2&&estUnNomDeProduitPlausible(m1[1].trim())){
       products.push({name:m1[1].trim(),qty:parseInt(m1[2])}); continue;
     }
     // Quantite sur la ligne suivante : "Boule T80" puis "65"
     if(i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())){
       var qty=parseInt(lines[i+1].trim());
-      if(qty>0&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&!ressembleAUneAdresse(l)){
+      if(qty>0&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&estUnNomDeProduitPlausible(l)){
         products.push({name:l,qty:qty}); i++;
       }
     }
@@ -2388,6 +2394,20 @@ function ouvrirAlerteWhatsApp(d){
   }
   var texte=construireMessageAlerte(d);
   window.open('https://wa.me/?text='+encodeURIComponent(texte),'_blank');
+}
+// Avant de finaliser reellement le pointage, on verifie si le responsable a demande le
+// comptage des caisses pour ce client aujourd'hui : si oui, on affiche le message avec bouton
+// OK, et on ne finalise qu'une fois ce message acquitte (voir action confirm-caisses-reminder).
+function procederPointage(id,liv,note,deliveryAvant){
+  if(deliveryAvant&&clientCaissesVisiblesAujourdhui(deliveryAvant.client)){
+    state.showCaissesReminder=true;
+    state.caissesReminderId=id;
+    state._pendingPointageLiv=liv;
+    state._pendingPointageNote=note;
+    render();
+    return;
+  }
+  finaliserPointage(id,liv,note,deliveryAvant);
 }
 function finaliserPointage(id,liv,note,deliveryAvant){
   var livreurNom=liv?liv.name:(state.role==='livreur'?state.livreurName:'');
@@ -3068,7 +3088,7 @@ function renderLivreurApp(){
     html+='</div>';
   }
   html+='</div>';
-  html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderCamionConfirmModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderGroupePointageModal();
+  html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderCamionConfirmModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupePointageModal();
   return html;
 }
 
@@ -3248,6 +3268,17 @@ function renderPhotoReminderModal(){
   html+='</div></div>';
   return html;
 }
+function renderCaissesReminderModal(){
+  if(!state.showCaissesReminder)return'';
+  var html='<div class="modal-overlay" data-action="noop"><div class="modal-sheet" data-action="noop" style="max-width:340px;">';
+  html+='<div style="text-align:center;padding:8px 0 16px;">';
+  html+='<div style="font-size:32px;margin-bottom:10px;">🧺</div>';
+  html+='<div style="color:var(--ink);font-weight:800;font-size:16px;line-height:1.4;">📢 Le responsable vous demande de compter les caisses pour ce client.</div>';
+  html+='</div>';
+  html+='<button class="btn-primary" style="width:100%;" data-action="confirm-caisses-reminder">OK</button>';
+  html+='</div></div>';
+  return html;
+}
 function renderWaPickerModal(){
   if(!state.showWaPicker||!state.waPickerTarget)return'';
   var d=state.waPickerTarget;
@@ -3416,14 +3447,6 @@ function clientCaissesVisiblesAujourdhui(client){
 // le compteur de caisses est visible aujourd'hui (voir clientCaissesVisiblesAujourdhui).
 // Reste affiche jusqu'a ce que le livreur tape dessus (pas de disparition chronometree, pour
 // laisser le temps de le lire).
-function declencherToastCaisses(client){
-  state.toastMessage='📢 Le responsable vous demande de compter les caisses pour ce client.';
-  render();
-}
-function renderToast(){
-  if(!state.toastMessage)return'';
-  return '<div class="toast-caisses" data-action="dismiss-toast-caisses">'+esc(state.toastMessage)+'</div>';
-}
 function renderContenantsSection(d){
   if(!clientCaissesVisiblesAujourdhui(d.client))return'';
   var pc=getPendingContenants();
@@ -3644,7 +3667,7 @@ function renderResponsableApp(){
   html+='<button class="btn-outline" style="width:calc(100% - 32px);margin:12px 16px;background:var(--amber-l,#FEF4E6);border-color:var(--amber);color:var(--amber-d,#8A5A10);font-weight:700;" data-action="export-commande-globale">📦 Générer la commande globale (Excel)</button>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderPhotoReminderModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal();
   return html;
 }
 function renderChoose(){
@@ -3676,7 +3699,7 @@ function renderLivreurName(){
 
 function renderPassword(){return'<div class="login-form-photo"><div class="login-form-card login-form-card-teal"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-light">Accès responsable</h1><p class="login-form-sub login-form-sub-light">Mot de passe requis</p></div><label class="form-label form-label-teal">Mot de passe</label><input class="form-input form-input-teal" id="l-pwd" type="password" placeholder="••••••••" /><button class="form-btn-teal" data-action="do-resp-login">Entrer</button><button class="form-back form-back-teal" data-action="goto-choose">← Retour</button><p class="form-error form-error-teal">'+esc(state.loginError)+'</p></div></div>';}
 
-function render(){var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();html+=renderToast();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();}
+function render(){var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();}
 function renderKeepScroll(){
   var sheet=document.querySelector('.modal-sheet');
   var y=sheet?sheet.scrollTop:window.scrollY;
@@ -4015,7 +4038,6 @@ if(action==='download-qr-code'){
   return;
 }
 if(action==='close-livreurs'){state.showLivreurs=false;render();return;}
-if(action==='dismiss-toast-caisses'){state.toastMessage=null;render();return;}
 if(action==='regen-livreur-access'){if(!state.livreurAccessToken||confirm('Régénérer le lien invalidera l\'ancien lien pour tous les appareils qui ne l\'ont pas encore ouvert. Continuer ?')){genererLienLivreurAccess();}return;}
 if(action==='share-livreur-access'){partagerLienLivreurAccess();return;}
 if(action==='copy-livreur-access'){
@@ -4086,7 +4108,6 @@ if(action==='open-groupe-detail'){
     CONTENANTS.forEach(function(c){state.pendingContenants[c.key]=Object.assign({livre:0,recupere:0},premier.contenants[c.key]||{});});
   }
   render();
-  if(state.role==='livreur'&&premier&&premier.status==='pending'&&clientCaissesVisiblesAujourdhui(premier.client))declencherToastCaisses(premier.client);
   return;
 }
 if(action==='marquer-groupe-livre'){
@@ -4296,9 +4317,7 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv,blPdf:state.pdfData?state.pdfData.originalPdfBase64:null});
 }
-else if(action==='select'){state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();
-  if(state.role==='livreur'){var dSel=state.deliveries.find(function(x){return x.id===id;});if(dSel&&dSel.status==='pending'&&clientCaissesVisiblesAujourdhui(dSel.client))declencherToastCaisses(dSel.client);}
-}
+else if(action==='select'){state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();}
 else if(action==='close-detail'){
   var curD=state.deliveries.find(function(x){return x.id===state.selectedId;});
   if(curD&&curD.status==='pending'){
@@ -4368,7 +4387,7 @@ else if(action==='submit-point'){
     render();
     return;
   }
-  finaliserPointage(id,liv,note,deliveryAvant);
+  procederPointage(id,liv,note,deliveryAvant);
 }
 else if(action==='confirm-sans-photo'){
   var idConfirme=state.photoReminderId;
@@ -4378,7 +4397,18 @@ else if(action==='confirm-sans-photo'){
   var deliveryAvantC=state.deliveries.find(function(x){return x.id===idConfirme;});
   state.showPhotoReminder=false;
   state.photoReminderId=null;
-  finaliserPointage(idConfirme,livC,noteC,deliveryAvantC);
+  procederPointage(idConfirme,livC,noteC,deliveryAvantC);
+}
+else if(action==='confirm-caisses-reminder'){
+  var idCr=state.caissesReminderId;
+  var livCr=state._pendingPointageLiv;
+  var noteCr=state._pendingPointageNote;
+  var deliveryAvantCr=state.deliveries.find(function(x){return x.id===idCr;});
+  state.showCaissesReminder=false;
+  state.caissesReminderId=null;
+  state._pendingPointageLiv=null;
+  state._pendingPointageNote=null;
+  finaliserPointage(idCr,livCr,noteCr,deliveryAvantCr);
 }
 else if(action==='cancel-photo-reminder'){
   state.showPhotoReminder=false;
