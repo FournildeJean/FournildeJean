@@ -1948,15 +1948,20 @@ function extractProductsByPosition(pageData){
     return motsAdresseProduits.test(texte)||debutNumeroRue.test(texte)||codePostalVille.test(texte);
   }
   var produits=[];
+  // Regle explicite : on part de la colonne QUANTITE. Pour chaque ligne ou une VALEUR y est
+  // presente, on va chercher le nom en face, dans la colonne DESIGNATION, sur cette meme ligne.
+  // Aucune ligne n'est retenue si la colonne Quantite est vide a cet endroit.
   lignes.forEach(function(ligne){
-    var itemsDesignation=ligne.items.filter(function(it){return it.x>=xDesignation-5&&it.x<xQuantite-5;});
     var itemsQuantite=ligne.items.filter(function(it){return it.x>=xQuantite-5;});
-    if(!itemsDesignation.length||!itemsQuantite.length)return; // pas de quantite en face -> pas un produit
-    itemsDesignation.sort(function(a,b){return a.x-b.x;});
-    var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
+    if(!itemsQuantite.length)return; // rien dans la colonne Quantite sur cette ligne -> on ignore
     var texteQuantite=itemsQuantite.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
     var qte=parseInt(texteQuantite.replace(/[^\d]/g,''),10);
-    if(nomDesignation.length>1&&qte>0&&!ressembleAUneAdresse(nomDesignation)){
+    if(!(qte>0))return; // la colonne Quantite ne contient pas une vraie valeur numerique -> on ignore
+    var itemsDesignation=ligne.items.filter(function(it){return it.x>=xDesignation-5&&it.x<xQuantite-5;});
+    if(!itemsDesignation.length)return; // rien en face dans Designation -> on ignore
+    itemsDesignation.sort(function(a,b){return a.x-b.x;});
+    var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
+    if(nomDesignation.length>1&&!ressembleAUneAdresse(nomDesignation)){
       produits.push({name:nomDesignation,qty:qte});
     }
   });
@@ -2068,6 +2073,12 @@ function importBlPdfsBulk(fileList){
         var tourneeInfo=extractTourneeInfo(text);
         var clientName=extractClientNameByPosition(res.pageData,tourneeInfo.tourneeTitle)||extractClientName(text);
         var products=extractProductsByPosition(res.pageData)||extractProducts(text,tourneeInfo.tourneeTitle);
+        // Un "produit" ne peut jamais etre exactement le nom du client (ex: "CNC Hotel") : si
+        // c'est le cas, c'est que le nom du client s'est glisse par erreur dans le tableau.
+        if(products&&clientName){
+          var clientNameNorm=clientName.trim().toLowerCase();
+          products=products.filter(function(p){return p.name.trim().toLowerCase()!==clientNameNorm;});
+        }
         var consigne=extractConsigne(text,tourneeInfo.tourneeTitle);
         var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
         if(existing){
@@ -2117,7 +2128,7 @@ function load(date){
       function realCount(photos){return(photos||[]).filter(function(p){return p&&p.src;}).length;}
       var localById={};
       state.deliveries.forEach(function(d){localById[d.id]=d;});
-      var merged=deliveries.map(function(incoming){
+      var merged=deliveries.filter(function(incoming){return !__idsRecemmentSupprimes[incoming.id];}).map(function(incoming){
         var local=localById[incoming.id];
         if(local){
           var localReal=realCount(local.photos);
@@ -2169,6 +2180,14 @@ function load(date){
     window._unsubAttachments=window.listenAttachments(date);
   }
 }
+// Protection contre une resurrection : si Firestore renvoie encore, pendant un court instant,
+// un document tout juste supprime (propagation pas encore terminee), on l'ignore quand meme
+// dans la fusion avec les donnees en temps reel, plutot que de le faire reapparaitre.
+var __idsRecemmentSupprimes={};
+function marquerCommeSupprime(id){
+  __idsRecemmentSupprimes[id]=true;
+  setTimeout(function(){delete __idsRecemmentSupprimes[id];},20000);
+}
 function persist(list){
   var previousList=state.deliveries||[];
   state.deliveries=list;
@@ -2204,6 +2223,7 @@ function persist(list){
         window.fbSave('fdj-deliveries', d.id, copy);
       });
       idsSupprimes.forEach(function(id){
+        marquerCommeSupprime(id);
         if(window.fbDelete)window.fbDelete('fdj-deliveries', id);
       });
     } else {
