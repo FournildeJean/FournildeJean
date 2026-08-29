@@ -1530,7 +1530,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var dataRows=stats.ordreClients.map(function(client,idx){
     var bg=idx%2===0?WHITE:PAPER2;
     var rowFill={patternType:'solid',fgColor:{rgb:bg}};
-    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',wrapText:true},border:allBorders}}];
+    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',horizontal:'center',wrapText:true},border:allBorders}}];
     CONTENANTS.forEach(function(c){
       var v=stats.parClient[client][c.key];
       row.push({v:v.livre,t:'n',s:{fill:rowFill,alignment:{horizontal:'center'},border:allBorders}});
@@ -1562,7 +1562,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var soldeRows=stats.ordreClients.map(function(client,idx){
     var bg=idx%2===0?WHITE:PAPER2;
     var rowFill={patternType:'solid',fgColor:{rgb:bg}};
-    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',wrapText:true},border:allBorders}}];
+    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',horizontal:'center',wrapText:true},border:allBorders}}];
     categoriesRecuperables.forEach(function(c){
       var v=stats.parClient[client][c.key];
       // Signe : negatif = encore du chez le client (livre > recupere) ; positif = excedent recupere (recupere > livre).
@@ -1938,6 +1938,15 @@ function extractProductsByPosition(pageData){
     ligne.items.push(it);
   });
   lignes.sort(function(a,b){return b.y-a.y;});
+  // Filtre de contenu, en plus de la position : meme si une ligne d'adresse tombe (a tort)
+  // dans la zone Designation/Quantite, on l'exclut explicitement si elle ressemble
+  // structurellement a une adresse (mot de voirie, code postal, ou numero de rue en debut).
+  var motsAdresseProduits=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc)\b/i;
+  var debutNumeroRue=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
+  var codePostalVille=/^\d{4,5}\s/;
+  function ressembleAUneAdresse(texte){
+    return motsAdresseProduits.test(texte)||debutNumeroRue.test(texte)||codePostalVille.test(texte);
+  }
   var produits=[];
   lignes.forEach(function(ligne){
     var itemsDesignation=ligne.items.filter(function(it){return it.x>=xDesignation-5&&it.x<xQuantite-5;});
@@ -1947,7 +1956,7 @@ function extractProductsByPosition(pageData){
     var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
     var texteQuantite=itemsQuantite.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
     var qte=parseInt(texteQuantite.replace(/[^\d]/g,''),10);
-    if(nomDesignation.length>1&&qte>0){
+    if(nomDesignation.length>1&&qte>0&&!ressembleAUneAdresse(nomDesignation)){
       produits.push({name:nomDesignation,qty:qte});
     }
   });
@@ -2582,14 +2591,14 @@ function styledSheetRows(headers,dataRows,totalRow){
     var rowFill={patternType:'solid',fgColor:{rgb:bg}};
     return row.map(function(cell,ci){
       var isNum=typeof cell==='number';
-      return{v:cell,t:isNum?'n':'s',s:{fill:rowFill,font:ci===0?{bold:true,color:{rgb:INK}}:{},alignment:isNum?{horizontal:'center'}:{},border:allBorders}};
+      return{v:cell,t:isNum?'n':'s',s:{fill:rowFill,font:ci===0?{bold:true,color:{rgb:INK}}:{},alignment:{horizontal:'center'},border:allBorders}};
     });
   });
   var rows=[headerRowStyled].concat(dataRowsStyled);
   if(totalRow){
     var totalRowStyled=totalRow.map(function(cell){
       var isNum=typeof cell==='number';
-      return{v:cell,t:isNum?'n':'s',s:{fill:totalFill,font:totalFont,alignment:isNum?{horizontal:'center'}:{},border:allBorders}};
+      return{v:cell,t:isNum?'n':'s',s:{fill:totalFill,font:totalFont,alignment:{horizontal:'center'},border:allBorders}};
     });
     rows.push(totalRowStyled);
   }
@@ -2690,11 +2699,15 @@ function renderGroupedDeliveryRows(items){
     var tousMemeStatut=g.items.every(function(d){return d.status===premierStatut;});
     var meta=tousMemeStatut?STATUS_META[premierStatut]:null;
     var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+esc(meta.label)+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
-    return '<button class="delivery-row" data-action="open-groupe-detail" data-id="'+groupeId+'">'+
-      '<div class="row-indicator '+(meta?meta.ind:'ind-pending')+'"></div><div class="row-body">'+
+    var contenuGroupe='<div class="row-indicator '+(meta?meta.ind:'ind-pending')+'"></div><div class="row-body">'+
       '<div class="row-client-line">📦 '+esc(g.client)+' <span style="color:var(--ink-3);font-weight:400;">('+g.items.length+' BL)</span></div>'+
       '<div class="row-top">'+statutAffiche+'</div>'+
-      '<div class="row-address">'+esc(g.address)+'</div></div></button>';
+      '<div class="row-address">'+esc(g.address)+'</div></div>';
+    if(state.selMode){
+      var tousSelectionnes=g.items.every(function(d){return state.selected[d.id];});
+      return '<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+(tousSelectionnes?'checked':'')+' data-action="toggle-select-groupe" data-id="'+groupeId+'"/><button class="delivery-row" data-action="toggle-select-groupe" data-id="'+groupeId+'">'+contenuGroupe+'</button></div>';
+    }
+    return '<button class="delivery-row" data-action="open-groupe-detail" data-id="'+groupeId+'">'+contenuGroupe+'</button>';
   }).join('');
 }
 function renderGroupeDetailModal(){
@@ -3586,6 +3599,15 @@ if(action==='cancel-sel'){state.selMode=false;state.selected={};render();return;
 if(action==='toggle-select'){
   if(state.selected[id])delete state.selected[id];
   else state.selected[id]=true;
+  render();return;
+}
+if(action==='toggle-select-groupe'){
+  var membresGroupe=itemsDuGroupe(id);
+  var tousSel=membresGroupe.every(function(d){return state.selected[d.id];});
+  membresGroupe.forEach(function(d){
+    if(tousSel)delete state.selected[d.id];
+    else state.selected[d.id]=true;
+  });
   render();return;
 }
 if(action==='toggle-select-tournee'){
