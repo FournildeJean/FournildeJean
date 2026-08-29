@@ -508,8 +508,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .row-check{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;cursor:pointer;accent-color:var(--red);z-index:5;}
 .sel-mode .delivery-row .row-body{padding-left:36px;}
 .btn-sel-mode{padding:6px 10px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;background:var(--paper-2);border:1px solid var(--rule);color:var(--ink-2);letter-spacing:.04em;}
-.toast-caisses{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1A1208;color:#FCE788;font-size:13px;font-weight:700;padding:12px 18px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:999;max-width:88vw;text-align:center;animation:toastFade 2s ease forwards;}
-@keyframes toastFade{0%{opacity:0;transform:translateX(-50%) translateY(8px);}10%{opacity:1;transform:translateX(-50%) translateY(0);}85%{opacity:1;}100%{opacity:0;}}
+.toast-caisses{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1A1208;color:#FCE788;font-size:13px;font-weight:700;padding:12px 18px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:999;max-width:88vw;text-align:center;cursor:pointer;animation:toastIn .25s ease;}
+@keyframes toastIn{0%{opacity:0;transform:translateX(-50%) translateY(8px);}100%{opacity:1;transform:translateX(-50%) translateY(0);}}
 
 /* ===== RESPONSIVE (consolidated) ===== */
 @media(min-width:640px){.modal-overlay{align-items:center;}.modal-sheet{border-radius:18px;border:3px solid var(--ink);max-width:600px;}.shell{max-width:860px;}.app-header{padding:24px 24px 0;}.app-sub{padding:10px 24px;}.date-row .date-center{font-size:15px;}.date-arr{width:50px;height:50px;font-size:22px;}.stats-strip .stat-num{font-size:30px;}.stats-strip .stat-lbl{font-size:10px;}.stat-cell{padding:14px 8px 10px;}.row-body{padding:13px 24px 13px 16px;}.row-client{font-size:15px;}.row-address{font-size:12px;}.hour-head{padding:10px 24px 8px;}.resp-action{padding:14px 8px;}.resp-action-icon{font-size:22px;}.resp-action-lbl{font-size:9px;}.camion-card{margin:16px;border-radius:12px;}.camion-finput{font-size:14px;padding:10px;}.btn-photo-brand{font-size:40px;}.rnav-btn{padding:12px 8px;}.rnav-icon{font-size:22px;}.rnav-lbl{font-size:9px;}.delivery-row{border-radius:6px;margin-bottom:3px;}.resp-actions .resp-action{padding:14px 8px;}.livreur-list .livreur-item{padding:14px 18px;}.livreur-name{font-size:15px;}}
@@ -1794,8 +1794,8 @@ function parseProductItemsStrict(ref){
     if(looksLikeInstruction.test(p))return; // une consigne (ex: "LIVRAISON AVANT 8H00 - CODE 1234") n'est jamais un produit
     var m1=p.match(/^(.+?)\s+[xX]\s*(\d+)$/);
     var m2=p.match(/^(\d+)\s+[xX]?\s+(.+)$/);
-    if(m1){out.push({name:m1[1].trim(),qty:parseInt(m1[2])});}
-    else if(m2){out.push({name:m2[2].trim(),qty:parseInt(m2[1])});}
+    if(m1&&!ressembleAUneAdresse(m1[1].trim())){out.push({name:m1[1].trim(),qty:parseInt(m1[2])});}
+    else if(m2&&!ressembleAUneAdresse(m2[2].trim())){out.push({name:m2[2].trim(),qty:parseInt(m2[1])});}
   });
   return out;
 }
@@ -2013,6 +2013,18 @@ function extractClientName(text){
   return '';
 }
 var looksLikeInstruction=/\b(avant|apr[eè]s|entre\s.+\set\s|code|digicode|porte|sonner|pr[eé]venir|attention|merci|svp|s\.?v\.?p\.?|noter|livraison\s|interphone|gardien|accueil|escalier|[eé]tage|batiment|b[aâ]timent)\b/i;
+// Filtres partages, utilises par TOUTES les methodes d'extraction produit (position-based ET
+// repli par texte brut) : un candidat "produit" qui ressemble structurellement a une adresse
+// ou a une mention de pied de page (raison sociale, TVA, SIRET, RIB/IBAN...) n'est jamais retenu,
+// meme s'il se trouve, par coincidence, en face d'une valeur numerique.
+var motsAdresseProduits=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc)\b/i;
+var debutNumeroRue=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
+var codePostalVille=/^\d{4,5}\s/;
+var looksLikeFooterZone=/\biban\b|\bbic\b|relev[eé]\s*d.identit[eé]|\brib\b|\bsiret\b|\bsiren\b|tva\s*intra|capital\s*social|\bsnc\b|\bsarl\b|\bsas\b|\beurl\b|\bsci\b|soci[eé]t[eé]/i;
+var looksLikeTotal=/^(sous[- ]?)?total\b/i;
+function ressembleAUneAdresse(texte){
+  return motsAdresseProduits.test(texte)||debutNumeroRue.test(texte)||codePostalVille.test(texte)||looksLikeFooterZone.test(texte)||looksLikeTotal.test(texte);
+}
 // Extraction des produits ancree sur la position reelle des colonnes "Designation" et
 // "Quantite" (comme pour le nom du client) : un produit n'est retenu QUE s'il y a une
 // vraie valeur dans la colonne Quantite, en face de son texte dans la colonne Designation.
@@ -2024,11 +2036,7 @@ function extractProductsByPosition(pageData){
   var enteteDesignation=items.find(function(it){return /^d[eé]signation$/i.test(it.str.trim());});
   var enteteQuantite=items.find(function(it){return /^quantit[eé]$/i.test(it.str.trim());});
   if(!enteteDesignation||!enteteQuantite)return null; // entetes introuvables -> repli sur l'ancienne methode
-  var xDesignation=enteteDesignation.x,xQuantite=enteteQuantite.x,yEntete=enteteDesignation.y;
-  // Largeur maximale plausible de la colonne Quantite : au-dela, on est sorti du tableau
-  // (ex: un numero de TVA/SIRET du bloc expediteur, place plus loin sur la page, ne doit
-  // jamais etre pris pour une valeur de cette colonne juste parce qu'il est "a droite").
-  var xQuantiteMax=xQuantite+(pageData.pageWidth||612)*0.12;
+  var xQuantite=enteteQuantite.x,yEntete=enteteDesignation.y;
   // Items sous l'entete uniquement (y strictement inferieur, l'axe Y du PDF remonte vers le haut)
   var itemsSousEntete=items.filter(function(it){return it.y<yEntete-2;});
   var lignes=[];
@@ -2041,33 +2049,24 @@ function extractProductsByPosition(pageData){
   lignes.forEach(function(ligne){
     ligne.texteComplet=ligne.items.slice().sort(function(a,b){return a.x-b.x;}).map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
   });
-  // Filtre de contenu, en plus de la position : meme si une ligne d'adresse tombe (a tort)
-  // dans la zone Designation/Quantite, on l'exclut explicitement si elle ressemble
-  // structurellement a une adresse (mot de voirie, code postal, ou numero de rue en debut).
-  var motsAdresseProduits=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc)\b/i;
-  var debutNumeroRue=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
-  var codePostalVille=/^\d{4,5}\s/;
-  function ressembleAUneAdresse(texte){
-    return motsAdresseProduits.test(texte)||debutNumeroRue.test(texte)||codePostalVille.test(texte);
-  }
-  // Des qu'une ligne ressemble au bloc "expediteur" en pied de page (raison sociale,
-  // TVA, SIRET, RIB/IBAN...), on arrete completement le balayage : tout ce qui suit est
-  // hors du cadre du tableau, meme si un chiffre y traine par coincidence dans la zone
-  // consideree comme la colonne Quantite.
-  var looksLikeFooterZone=/\biban\b|\bbic\b|relev[eé]\s*d.identit[eé]|\brib\b|\bsiret\b|\bsiren\b|tva\s*intra|capital\s*social|\bsnc\b|\bsarl\b|\bsas\b|\beurl\b|\bsci\b|soci[eé]t[eé]/i;
   var produits=[];
-  // Regle explicite : on part de la colonne QUANTITE. Pour chaque ligne ou une VALEUR y est
-  // presente, on va chercher le nom en face, dans la colonne DESIGNATION, sur cette meme ligne.
-  // Aucune ligne n'est retenue si la colonne Quantite est vide a cet endroit.
+  // Regle structurelle, independante de toute largeur/position absolue : on part de la colonne
+  // QUANTITE (juste a droite de l'entete "Quantite", sans limite de largeur arbitraire). Une
+  // ligne n'est retenue QUE si tout ce qui s'y trouve, a partir de cette colonne, forme UN SEUL
+  // nombre et rien d'autre (pas un texte contenant des chiffres, ex: "TVA : FR 59 421 380" ou un
+  // numero de telephone) : c'est cette purete qui protege contre tout texte hors tableau, quelle
+  // que soit sa position exacte sur la page. Le nom du produit est alors lu en face, dans la
+  // colonne DESIGNATION, sur cette meme ligne.
   for(var li=0;li<lignes.length;li++){
     var ligne=lignes[li];
     if(looksLikeFooterZone.test(ligne.texteComplet))break; // sortie du cadre tableau : on s'arrete net
-    var itemsQuantite=ligne.items.filter(function(it){return it.x>=xQuantite-5&&it.x<xQuantiteMax;});
+    var itemsQuantite=ligne.items.filter(function(it){return it.x>=xQuantite-5;});
     if(!itemsQuantite.length)continue; // rien dans la colonne Quantite sur cette ligne -> on ignore
-    var texteQuantite=itemsQuantite.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
-    var qte=parseInt(texteQuantite.replace(/[^\d]/g,''),10);
-    if(!(qte>0))continue; // la colonne Quantite ne contient pas une vraie valeur numerique -> on ignore
-    var itemsDesignation=ligne.items.filter(function(it){return it.x>=xDesignation-5&&it.x<xQuantite-5;});
+    var texteQuantiteBrut=itemsQuantite.map(function(it){return it.str;}).join('').replace(/\s+/g,'').trim();
+    if(!/^\d{1,4}$/.test(texteQuantiteBrut))continue; // la case Quantite doit contenir UNIQUEMENT un nombre, rien d'autre -> sinon on ignore
+    var qte=parseInt(texteQuantiteBrut,10);
+    if(!(qte>0))continue;
+    var itemsDesignation=ligne.items.filter(function(it){return it.x<xQuantite-5;});
     if(!itemsDesignation.length)continue; // rien en face dans Designation -> on ignore
     itemsDesignation.sort(function(a,b){return a.x-b.x;});
     var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
@@ -2088,13 +2087,13 @@ function extractProducts(text,tourneeTitleToSkip){
     if(looksLikeInstruction.test(l))continue; // une consigne (ex: "LIVRAISON AVANT 8H00 - CODE 1234") n'est jamais un produit, meme si elle se termine par un nombre
     // Quantite sur la meme ligne : "Boule T80 65"
     var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
-    if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2){
+    if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2&&!ressembleAUneAdresse(m1[1].trim())){
       products.push({name:m1[1].trim(),qty:parseInt(m1[2])}); continue;
     }
     // Quantite sur la ligne suivante : "Boule T80" puis "65"
     if(i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())){
       var qty=parseInt(lines[i+1].trim());
-      if(qty>0&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)){
+      if(qty>0&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&!ressembleAUneAdresse(l)){
         products.push({name:l,qty:qty}); i++;
       }
     }
@@ -3413,18 +3412,17 @@ function clientCaissesVisiblesAujourdhui(client){
   if(cv.mode==='list')return(cv.clients||[]).indexOf(client)!==-1;
   return false;
 }
-// Message temporaire (toast), affiche 2 secondes puis disparait tout seul, declenche a
-// l'ouverture du pointage d'un BL pour un client dont le compteur de caisses est visible
-// aujourd'hui (voir clientCaissesVisiblesAujourdhui).
+// Message temporaire (toast), declenche a l'ouverture du pointage d'un BL pour un client dont
+// le compteur de caisses est visible aujourd'hui (voir clientCaissesVisiblesAujourdhui).
+// Reste affiche jusqu'a ce que le livreur tape dessus (pas de disparition chronometree, pour
+// laisser le temps de le lire).
 function declencherToastCaisses(client){
-  if(window._toastCaissesTimer)clearTimeout(window._toastCaissesTimer);
   state.toastMessage='📢 Le responsable vous demande de compter les caisses pour ce client.';
   render();
-  window._toastCaissesTimer=setTimeout(function(){state.toastMessage=null;render();},2000);
 }
 function renderToast(){
   if(!state.toastMessage)return'';
-  return '<div class="toast-caisses">'+esc(state.toastMessage)+'</div>';
+  return '<div class="toast-caisses" data-action="dismiss-toast-caisses">'+esc(state.toastMessage)+'</div>';
 }
 function renderContenantsSection(d){
   if(!clientCaissesVisiblesAujourdhui(d.client))return'';
@@ -4017,6 +4015,7 @@ if(action==='download-qr-code'){
   return;
 }
 if(action==='close-livreurs'){state.showLivreurs=false;render();return;}
+if(action==='dismiss-toast-caisses'){state.toastMessage=null;render();return;}
 if(action==='regen-livreur-access'){if(!state.livreurAccessToken||confirm('Régénérer le lien invalidera l\'ancien lien pour tous les appareils qui ne l\'ont pas encore ouvert. Continuer ?')){genererLienLivreurAccess();}return;}
 if(action==='share-livreur-access'){partagerLienLivreurAccess();return;}
 if(action==='copy-livreur-access'){
