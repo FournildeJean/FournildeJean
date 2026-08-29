@@ -3353,7 +3353,7 @@ function renderCaissesVisibilitySection(){
   if(!clientsAujourdhui.length){
     html+='<p style="font-size:12px;color:var(--ink-3);text-align:center;padding:6px 0;">Aucun client dans la tournée du jour.</p>';
   } else {
-    html+='<div style="max-height:220px;overflow-y:auto;border:1px solid var(--rule);border-radius:8px;padding:2px 6px;">'+clientsAujourdhui.map(function(client,idx){
+    html+='<div id="caissesvis-list-scroll" data-preserve-scroll style="max-height:220px;overflow-y:auto;border:1px solid var(--rule);border-radius:8px;padding:2px 6px;">'+clientsAujourdhui.map(function(client,idx){
       var coche=toutCoche||(cv.mode==='list'&&(cv.clients||[]).indexOf(client)!==-1);
       return '<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:12.5px;cursor:pointer;'+(idx>0?'border-top:1px solid var(--rule);':'')+'"><input type="checkbox" data-action="toggle-caissesvis-client" data-client="'+esc(client)+'" '+(coche?'checked':'')+'/> '+esc(client)+'</label>';
     }).join('')+'</div>';
@@ -3448,7 +3448,7 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
     '<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Personnes ou groupes à proposer au livreur quand il signale un problème.</p>'+
     waItems+
     '<div class="add-row"><input id="wa-nom" placeholder="Nom (ex: Groupe Alertes)" type="text" style="max-width:140px;"/><input id="wa-numero" placeholder="Numéro (ex: 33612345678)" type="tel"/><button class="btn-add-lv" data-action="submit-add-wa-contact">+</button></div>';
-  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+renderLivreurAccessSection()+nonAssignesHtml+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+renderCaissesVisibilitySection()+waSection+'</div></div>';}
+  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" id="livreurs-modal-scroll" data-preserve-scroll data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+renderLivreurAccessSection()+nonAssignesHtml+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+renderCaissesVisibilitySection()+waSection+'</div></div>';}
 var CONTENANTS=[
   {key:'manesVertes',label:'Manes vertes',recuperable:true,color:'C6E8C6'},
   {key:'caissesGrises',label:'Caisses grises',recuperable:true,color:'D9D9D9'},
@@ -3728,7 +3728,16 @@ function renderLivreurName(){
 
 function renderPassword(){return'<div class="login-form-photo"><div class="login-form-card login-form-card-teal"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-light">Accès responsable</h1><p class="login-form-sub login-form-sub-light">Mot de passe requis</p></div><label class="form-label form-label-teal">Mot de passe</label><input class="form-input form-input-teal" id="l-pwd" type="password" placeholder="••••••••" /><button class="form-btn-teal" data-action="do-resp-login">Entrer</button><button class="form-back form-back-teal" data-action="goto-choose">← Retour</button><p class="form-error form-error-teal">'+esc(state.loginError)+'</p></div></div>';}
 
-function render(){var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();}
+function render(){
+  // Preserve le defilement des conteneurs marques (ex: la fenetre "Livreurs") : sans ca, chaque
+  // re-rendu (ex: cocher un client) reconstruit tout le HTML et remonte le defilement en haut.
+  var scrollMemo={};
+  document.querySelectorAll('[data-preserve-scroll]').forEach(function(el){
+    if(el.id)scrollMemo[el.id]=el.scrollTop;
+  });
+  var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();
+  Object.keys(scrollMemo).forEach(function(id){var el=document.getElementById(id);if(el)el.scrollTop=scrollMemo[id];});
+}
 function renderKeepScroll(){
   var sheet=document.querySelector('.modal-sheet');
   var y=sheet?sheet.scrollTop:window.scrollY;
