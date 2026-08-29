@@ -122,6 +122,30 @@ function listenCamions(date) {
 }
 window.listenCamions = listenCamions;
 
+// Visibilite du compteur de caisses cote livreur, par client, remise a zero chaque jour
+// (un document par date, prefixe fdj- comme le reste). Absence de document = rien de
+// visible (masque par defaut).
+function listenCaissesVisibles(date) {
+  return onSnapshot(doc(db, 'fdj-caisses-visibles', date), function(snap) {
+    if(typeof window.onFbCaissesVisibles === 'function') {
+      window.onFbCaissesVisibles(snap.exists() ? snap.data() : {mode:'none', clients:[]});
+    }
+  });
+}
+window.listenCaissesVisibles = listenCaissesVisibles;
+
+// Acces livreur securise par lien secret : un seul jeton, commun a toute l'equipe, que le
+// responsable peut regenerer a tout moment (invalide alors l'ancien lien). Document unique,
+// prefixe fdj- comme le reste des collections.
+function listenLivreurAccessToken() {
+  return onSnapshot(doc(db, 'fdj-access', 'livreur'), function(snap) {
+    if(typeof window.onFbLivreurAccessToken === 'function') {
+      window.onFbLivreurAccessToken(snap.exists() ? (snap.data().token || null) : null);
+    }
+  });
+}
+window.listenLivreurAccessToken = listenLivreurAccessToken;
+
 // Pieces jointes (photos + PDF) : stockees a part, un document par livraison,
 // pour ne jamais faire grossir le document du jour au-dela de la limite Firestore (1 Mo).
 function listenAttachments(date) {
@@ -722,6 +746,19 @@ function saveLivreurs(l){
   }
   doFbSaveLiv();
 }
+function loadCaissesVisibles(date){return idbGet('fdj-caisses-visibles:'+date)||{mode:'none',clients:[]};}
+function saveCaissesVisibles(date,obj){
+  var ts=new Date().toISOString();
+  idbSet('fdj-caisses-visibles:'+date,obj);
+  function doFbSave(){
+    if(window.fbReady){
+      window.fbSave('fdj-caisses-visibles', date, Object.assign({},obj,{date:date, updatedAt:ts}));
+    } else {
+      setTimeout(doFbSave, 500);
+    }
+  }
+  doFbSave();
+}
 function loadCamions(date){return idbGet('fdj-camions:'+date)||[];}
 function saveCamions(date,l){
   var ts=new Date().toISOString();
@@ -741,10 +778,67 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
+var state={screen:'choose',role:null,loginError:'',livreurAccessToken:null,livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;runCleanupIfDue();}
+
+// --- Acces livreur securise par lien secret (sans mot de passe a taper) ---
+// Le lien contient un jeton (?la=...) genere/regenere par le responsable. Une fois ce lien
+// ouvert une fois sur un appareil, celui-ci memorise l'autorisation localement et retrouve
+// automatiquement l'espace livreur a chaque ouverture suivante, sans rien retaper.
+(function(){
+  var params=new URLSearchParams(location.search);
+  var lienToken=params.get('la');
+  if(lienToken){
+    window._pendingLivreurAccessToken=lienToken;
+    try{history.replaceState({},'',location.pathname);}catch(e){} // n'affiche pas le jeton dans l'URL/historique
+  }
+})();
+function deviceLivreurAutorise(){
+  if(!state.livreurAccessToken)return false; // jeton pas encore charge, ou aucun lien genere par le responsable
+  return localStorage.getItem('fdj-device-livreur-ok')===state.livreurAccessToken;
+}
+function initFbLivreurAccess(){
+  if(!window.fbReady){setTimeout(initFbLivreurAccess,500);return;}
+  window.onFbLivreurAccessToken=function(token){
+    state.livreurAccessToken=token||null;
+    if(window._pendingLivreurAccessToken&&token&&window._pendingLivreurAccessToken===token){
+      try{localStorage.setItem('fdj-device-livreur-ok',token);}catch(e){}
+      window._pendingLivreurAccessToken=null;
+    }
+    render();
+  };
+  window._unsubLivreurAccess=window.listenLivreurAccessToken();
+}
+initFbLivreurAccess();
+function genererLienLivreurAccess(){
+  var token=(Date.now().toString(36)+Math.random().toString(36).slice(2,10)).toUpperCase();
+  state.livreurAccessToken=token;
+  function doSave(){
+    if(window.fbReady){window.fbSave('fdj-access','livreur',{token:token,updatedAt:new Date().toISOString()});}
+    else setTimeout(doSave,500);
+  }
+  doSave();
+  render();
+}
+function lienLivreurAccessUrl(){
+  if(!state.livreurAccessToken)return'';
+  return location.origin+location.pathname+'?la='+encodeURIComponent(state.livreurAccessToken);
+}
+function partagerLienLivreurAccess(){
+  var url=lienLivreurAccessUrl();
+  if(!url)return;
+  var text='Lien d\'accès livreur Fournil de Jean (à ouvrir une seule fois sur le téléphone) :\n'+url;
+  if(navigator.share){
+    navigator.share({title:'Accès livreur',text:text,url:url}).catch(function(err){
+      if(err&&err.name==='AbortError')return;
+      window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
+    });
+  } else {
+    window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
+  }
+}
 
 function toLocalISODate(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
 // Nettoyage automatique : verifie a la connexion responsable si ca fait au moins 15 jours
@@ -1530,7 +1624,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var dataRows=stats.ordreClients.map(function(client,idx){
     var bg=idx%2===0?WHITE:PAPER2;
     var rowFill={patternType:'solid',fgColor:{rgb:bg}};
-    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',horizontal:'center',wrapText:true},border:allBorders}}];
+    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',horizontal:'left',wrapText:true},border:allBorders}}];
     CONTENANTS.forEach(function(c){
       var v=stats.parClient[client][c.key];
       row.push({v:v.livre,t:'n',s:{fill:rowFill,alignment:{horizontal:'center'},border:allBorders}});
@@ -1549,7 +1643,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var ws=XLSX.utils.aoa_to_sheet(aoaRows);
   ws['!merges']=merges;
   ws['!cols']=row2.map(function(){return{wch:16};});
-  ws['!cols'][0]={wch:38};
+  ws['!cols'][0]={wch:45};
   ws['!freeze']={ySplit:2};
 
   // Onglet separe : combien de caisses restent chez chaque client (Livre - Recupere), par categorie recuperable.
@@ -1562,7 +1656,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   var soldeRows=stats.ordreClients.map(function(client,idx){
     var bg=idx%2===0?WHITE:PAPER2;
     var rowFill={patternType:'solid',fgColor:{rgb:bg}};
-    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',horizontal:'center',wrapText:true},border:allBorders}}];
+    var row=[{v:client,t:'s',s:{fill:rowFill,font:{bold:true,color:{rgb:INK},sz:13},alignment:{vertical:'center',horizontal:'left',wrapText:true},border:allBorders}}];
     categoriesRecuperables.forEach(function(c){
       var v=stats.parClient[client][c.key];
       // Signe : negatif = encore du chez le client (livre > recupere) ; positif = excedent recupere (recupere > livre).
@@ -1580,7 +1674,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   });
   var soldeAoa=[soldeHeader].concat(soldeRows).concat([soldeTotalRow]);
   var wsSolde=XLSX.utils.aoa_to_sheet(soldeAoa);
-  wsSolde['!cols']=[{wch:38}].concat(categoriesRecuperables.map(function(){return{wch:16};}));
+  wsSolde['!cols']=[{wch:45}].concat(categoriesRecuperables.map(function(){return{wch:16};}));
   wsSolde['!freeze']={ySplit:1};
   wsSolde['!autofilter']={ref:'A1:'+String.fromCharCode(65+categoriesRecuperables.length)+soldeAoa.length};
 
@@ -1608,7 +1702,7 @@ function exportCommandeGlobale(){
   var totalRow=['TOTAL',ordreProduits.reduce(function(s,n){return s+totaux[n];},0)];
   var aoaRows=styledSheetRows(['Produit','Quantite totale'],dataRows,totalRow);
   var ws=XLSX.utils.aoa_to_sheet(aoaRows);
-  ws['!cols']=[{wch:32},{wch:16}];ws['!freeze']={ySplit:1};
+  ws['!cols']=[{wch:45},{wch:16}];ws['!freeze']={ySplit:1};
   ws['!autofilter']={ref:'A1:B'+aoaRows.length};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Commande globale');
   XLSX.writeFile(wb,'commande-globale-'+state.date+'.xlsx');
@@ -1632,7 +1726,7 @@ function exportCaissesNonRetournees(){
   });
   var aoaRows=styledSheetRows(headers,dataRows);
   var ws=XLSX.utils.aoa_to_sheet(aoaRows);
-  ws['!cols']=[{wch:16},{wch:14},{wch:14},{wch:36},{wch:18},{wch:12}];ws['!freeze']={ySplit:1};
+  ws['!cols']=[{wch:16},{wch:14},{wch:14},{wch:45},{wch:18},{wch:12}];ws['!freeze']={ySplit:1};
   ws['!autofilter']={ref:'A1:F'+aoaRows.length};
   var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Caisses non retournees');
   XLSX.writeFile(wb,'caisses-non-retournees-'+state.date+'.xlsx');
@@ -1678,7 +1772,7 @@ function exportExcel(dateFrom, dateTo){
   }
   var ws1=XLSX.utils.aoa_to_sheet(styledSheetRows(rows1[0],rows1.slice(1)));
   var ws2=XLSX.utils.aoa_to_sheet(styledSheetRows(rows2[0],rows2.slice(1)));
-  ws1['!cols']=autoFitCols(rows1);ws1['!freeze']={ySplit:1};
+  ws1['!cols']=autoFitCols(rows1,[4,8]);ws1['!freeze']={ySplit:1}; // Client (4), Produit (8)
   ws2['!cols']=autoFitCols(rows2);ws2['!freeze']={ySplit:1};
   ws1['!autofilter']={ref:'A1:'+String.fromCharCode(64+rows1[0].length)+rows1.length};
   ws2['!autofilter']={ref:'A1:'+String.fromCharCode(64+rows2[0].length)+rows2.length};
@@ -1929,6 +2023,10 @@ function extractProductsByPosition(pageData){
   var enteteQuantite=items.find(function(it){return /^quantit[eé]$/i.test(it.str.trim());});
   if(!enteteDesignation||!enteteQuantite)return null; // entetes introuvables -> repli sur l'ancienne methode
   var xDesignation=enteteDesignation.x,xQuantite=enteteQuantite.x,yEntete=enteteDesignation.y;
+  // Largeur maximale plausible de la colonne Quantite : au-dela, on est sorti du tableau
+  // (ex: un numero de TVA/SIRET du bloc expediteur, place plus loin sur la page, ne doit
+  // jamais etre pris pour une valeur de cette colonne juste parce qu'il est "a droite").
+  var xQuantiteMax=xQuantite+(pageData.pageWidth||612)*0.12;
   // Items sous l'entete uniquement (y strictement inferieur, l'axe Y du PDF remonte vers le haut)
   var itemsSousEntete=items.filter(function(it){return it.y<yEntete-2;});
   var lignes=[];
@@ -1937,7 +2035,10 @@ function extractProductsByPosition(pageData){
     if(!ligne){ligne={y:it.y,items:[]};lignes.push(ligne);}
     ligne.items.push(it);
   });
-  lignes.sort(function(a,b){return b.y-a.y;});
+  lignes.sort(function(a,b){return b.y-a.y;}); // haut de page en premier
+  lignes.forEach(function(ligne){
+    ligne.texteComplet=ligne.items.slice().sort(function(a,b){return a.x-b.x;}).map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
+  });
   // Filtre de contenu, en plus de la position : meme si une ligne d'adresse tombe (a tort)
   // dans la zone Designation/Quantite, on l'exclut explicitement si elle ressemble
   // structurellement a une adresse (mot de voirie, code postal, ou numero de rue en debut).
@@ -1947,24 +2048,31 @@ function extractProductsByPosition(pageData){
   function ressembleAUneAdresse(texte){
     return motsAdresseProduits.test(texte)||debutNumeroRue.test(texte)||codePostalVille.test(texte);
   }
+  // Des qu'une ligne ressemble au bloc "expediteur" en pied de page (raison sociale,
+  // TVA, SIRET, RIB/IBAN...), on arrete completement le balayage : tout ce qui suit est
+  // hors du cadre du tableau, meme si un chiffre y traine par coincidence dans la zone
+  // consideree comme la colonne Quantite.
+  var looksLikeFooterZone=/\biban\b|\bbic\b|relev[eé]\s*d.identit[eé]|\brib\b|\bsiret\b|\bsiren\b|tva\s*intra|capital\s*social|\bsnc\b|\bsarl\b|\bsas\b|\beurl\b|\bsci\b|soci[eé]t[eé]/i;
   var produits=[];
   // Regle explicite : on part de la colonne QUANTITE. Pour chaque ligne ou une VALEUR y est
   // presente, on va chercher le nom en face, dans la colonne DESIGNATION, sur cette meme ligne.
   // Aucune ligne n'est retenue si la colonne Quantite est vide a cet endroit.
-  lignes.forEach(function(ligne){
-    var itemsQuantite=ligne.items.filter(function(it){return it.x>=xQuantite-5;});
-    if(!itemsQuantite.length)return; // rien dans la colonne Quantite sur cette ligne -> on ignore
+  for(var li=0;li<lignes.length;li++){
+    var ligne=lignes[li];
+    if(looksLikeFooterZone.test(ligne.texteComplet))break; // sortie du cadre tableau : on s'arrete net
+    var itemsQuantite=ligne.items.filter(function(it){return it.x>=xQuantite-5&&it.x<xQuantiteMax;});
+    if(!itemsQuantite.length)continue; // rien dans la colonne Quantite sur cette ligne -> on ignore
     var texteQuantite=itemsQuantite.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
     var qte=parseInt(texteQuantite.replace(/[^\d]/g,''),10);
-    if(!(qte>0))return; // la colonne Quantite ne contient pas une vraie valeur numerique -> on ignore
+    if(!(qte>0))continue; // la colonne Quantite ne contient pas une vraie valeur numerique -> on ignore
     var itemsDesignation=ligne.items.filter(function(it){return it.x>=xDesignation-5&&it.x<xQuantite-5;});
-    if(!itemsDesignation.length)return; // rien en face dans Designation -> on ignore
+    if(!itemsDesignation.length)continue; // rien en face dans Designation -> on ignore
     itemsDesignation.sort(function(a,b){return a.x-b.x;});
     var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
     if(nomDesignation.length>1&&!ressembleAUneAdresse(nomDesignation)){
       produits.push({name:nomDesignation,qty:qte});
     }
-  });
+  }
   return produits.length?produits:null;
 }
 function extractProducts(text,tourneeTitleToSkip){
@@ -2112,7 +2220,7 @@ function importBlPdfsBulk(fileList){
 }
 
 function load(date){
-  state.loading=true;state.camions=loadCamions(date);render();
+  state.loading=true;state.camions=loadCamions(date);state.caissesVisibles=loadCaissesVisibles(date);render();
   // Local d'abord pour affichage rapide
   state.deliveries=idbGet('fdj-tournee:'+date)||[];
   state.loading=false;render();
@@ -2152,6 +2260,13 @@ function load(date){
       render();
     };
     window._unsubCamions=window.listenCamions(date);
+    if(window._unsubCaissesVisibles) window._unsubCaissesVisibles();
+    window.onFbCaissesVisibles=function(data){
+      state.caissesVisibles=data||{mode:'none',clients:[]};
+      idbSet('fdj-caisses-visibles:'+date,state.caissesVisibles);
+      render();
+    };
+    window._unsubCaissesVisibles=window.listenCaissesVisibles(date);
     if(window._unsubAttachments) window._unsubAttachments();
     window.onFbAttachments=function(attachments){
       function realCount(photos){return(photos||[]).filter(function(p){return p&&p.src;}).length;}
@@ -2611,20 +2726,22 @@ function styledSheetRows(headers,dataRows,totalRow){
     var rowFill={patternType:'solid',fgColor:{rgb:bg}};
     return row.map(function(cell,ci){
       var isNum=typeof cell==='number';
-      return{v:cell,t:isNum?'n':'s',s:{fill:rowFill,font:ci===0?{bold:true,color:{rgb:INK}}:{},alignment:{horizontal:'center'},border:allBorders}};
+      // Regle d'alignement : seules les valeurs numeriques sont centrees, le texte reste
+      // aligne a gauche (normal), pour ne pas gener la lecture des noms de client/produit.
+      return{v:cell,t:isNum?'n':'s',s:{fill:rowFill,font:ci===0?{bold:true,color:{rgb:INK}}:{},alignment:{horizontal:isNum?'center':'left'},border:allBorders}};
     });
   });
   var rows=[headerRowStyled].concat(dataRowsStyled);
   if(totalRow){
     var totalRowStyled=totalRow.map(function(cell){
       var isNum=typeof cell==='number';
-      return{v:cell,t:isNum?'n':'s',s:{fill:totalFill,font:totalFont,alignment:{horizontal:'center'},border:allBorders}};
+      return{v:cell,t:isNum?'n':'s',s:{fill:totalFill,font:totalFont,alignment:{horizontal:isNum?'center':'left'},border:allBorders}};
     });
     rows.push(totalRowStyled);
   }
   return rows;
 }
-function autoFitCols(rows){
+function autoFitCols(rows,wideCols){
   var widths=[];
   rows.forEach(function(row){
     (row||[]).forEach(function(cell,i){
@@ -2632,6 +2749,9 @@ function autoFitCols(rows){
       widths[i]=Math.max(widths[i]||8, Math.min(50, len+2));
     });
   });
+  // Colonnes contenant des noms de client/produit : largeur genereuse forcee, pour ne
+  // jamais tronquer meme les noms longs (ex: raisons sociales completes).
+  if(wideCols)wideCols.forEach(function(i){widths[i]=Math.max(widths[i]||8,45);});
   return widths.map(function(w){return {wch:w};});
 }
 function printDashboard(dateFrom, dateTo){
@@ -3159,6 +3279,45 @@ function renderScannerModal(){
     '</div>'+
   '</div>';
 }
+function renderCaissesVisibilitySection(){
+  var cv=state.caissesVisibles||{mode:'none',clients:[]};
+  var clientsAujourdhui=Array.from(new Set(state.deliveries.map(function(d){return d.client;}).filter(Boolean))).sort(function(a,b){return a.localeCompare(b,'fr');});
+  var toutCoche=cv.mode==='all';
+  var html='<div class="divider"></div><div class="section-lbl">🧺 Compteur de caisses visible côté livreur (aujourd\'hui uniquement)</div>';
+  html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Masqué par défaut chaque jour : cochez les clients pour lesquels le livreur doit voir et remplir le compteur de caisses. Remis à zéro automatiquement le lendemain.</p>';
+  html+='<div style="display:flex;gap:8px;margin-bottom:8px;">'+
+    '<button class="btn-outline" style="flex:1;padding:6px;font-size:12px;'+(toutCoche?'background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;':'')+'" data-action="caissesvis-select-all">Tout sélectionner</button>'+
+    '<button class="btn-outline" style="flex:1;padding:6px;font-size:12px;" data-action="caissesvis-select-none">Aucun</button>'+
+    '</div>';
+  if(!clientsAujourdhui.length){
+    html+='<p style="font-size:12px;color:var(--ink-3);text-align:center;padding:6px 0;">Aucun client dans la tournée du jour.</p>';
+  } else {
+    html+='<div style="max-height:220px;overflow-y:auto;border:1px solid var(--rule);border-radius:8px;padding:2px 6px;">'+clientsAujourdhui.map(function(client,idx){
+      var coche=toutCoche||(cv.mode==='list'&&(cv.clients||[]).indexOf(client)!==-1);
+      return '<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:12.5px;cursor:pointer;'+(idx>0?'border-top:1px solid var(--rule);':'')+'"><input type="checkbox" data-action="toggle-caissesvis-client" data-client="'+esc(client)+'" '+(coche?'checked':'')+'/> '+esc(client)+'</label>';
+    }).join('')+'</div>';
+  }
+  return html;
+}
+function renderLivreurAccessSection(){
+  var actif=!!state.livreurAccessToken;
+  var url=lienLivreurAccessUrl();
+  var html='<div class="section-lbl">🔒 Accès livreur sécurisé</div>';
+  html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Sans ce lien, la page "Je suis livreur" reste inaccessible à qui que ce soit. Un appareil qui l\'a ouvert une fois retrouve l\'accès automatiquement ensuite, sans mot de passe.</p>';
+  if(actif){
+    html+='<div style="display:flex;gap:6px;align-items:center;background:var(--paper-2);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'+
+      '<input id="livreur-access-url" type="text" readonly value="'+esc(url)+'" style="flex:1;min-width:0;border:none;background:transparent;font-size:11px;color:var(--ink-3);font-family:var(--mono);"/>'+
+      '<button class="btn-outline" style="padding:5px 10px;font-size:11px;white-space:nowrap;" data-action="copy-livreur-access">Copier</button></div>';
+    html+='<div style="display:flex;gap:8px;">'+
+      '<button class="btn-outline" style="flex:1;padding:8px;font-size:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="share-livreur-access">📤 Partager le lien</button>'+
+      '<button class="btn-outline" style="flex:1;padding:8px;font-size:12px;" data-action="regen-livreur-access">🔁 Régénérer</button>'+
+      '</div>';
+  } else {
+    html+='<button class="btn-outline" style="width:100%;padding:10px;font-size:13px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="regen-livreur-access">🔗 Générer le lien d\'accès</button>';
+  }
+  html+='<div class="divider"></div>';
+  return html;
+}
 function renderLivreursModal(){if(!state.showLivreurs)return'';
   // Section "non assignes", groupee par tournee, avec assignation en bloc depuis cet ecran
   // (l'assignation a ete retiree des ecrans tournee/BL, tout se passe desormais ici).
@@ -3228,7 +3387,7 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
     '<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Personnes ou groupes à proposer au livreur quand il signale un problème.</p>'+
     waItems+
     '<div class="add-row"><input id="wa-nom" placeholder="Nom (ex: Groupe Alertes)" type="text" style="max-width:140px;"/><input id="wa-numero" placeholder="Numéro (ex: 33612345678)" type="tel"/><button class="btn-add-lv" data-action="submit-add-wa-contact">+</button></div>';
-  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+nonAssignesHtml+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+waSection+'</div></div>';}
+  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+renderLivreurAccessSection()+nonAssignesHtml+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+renderCaissesVisibilitySection()+waSection+'</div></div>';}
 var CONTENANTS=[
   {key:'manesVertes',label:'Manes vertes',recuperable:true,color:'C6E8C6'},
   {key:'caissesGrises',label:'Caisses grises',recuperable:true,color:'D9D9D9'},
@@ -3242,7 +3401,18 @@ function getPendingContenants(){
   }
   return state.pendingContenants;
 }
+// Visibilite du compteur de caisses cote livreur : masque par defaut chaque jour, le
+// responsable doit explicitement cocher "Tout" ou des clients precis (espace Livreurs)
+// pour ce jour precis. Reinitialise automatiquement le lendemain (voir load(date)).
+function clientCaissesVisiblesAujourdhui(client){
+  var cv=state.caissesVisibles;
+  if(!cv)return false;
+  if(cv.mode==='all')return true;
+  if(cv.mode==='list')return(cv.clients||[]).indexOf(client)!==-1;
+  return false;
+}
 function renderContenantsSection(d){
+  if(!clientCaissesVisiblesAujourdhui(d.client))return'';
   var pc=getPendingContenants();
   var html='<div class="field-label" style="margin-top:14px;">🧺 Caisses (livrées / récupérées)</div>';
   html+='<div style="border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-top:4px;">';
@@ -3464,7 +3634,12 @@ function renderResponsableApp(){
   html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderPhotoReminderModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal();
   return html;
 }
-function renderChoose(){return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';}
+function renderChoose(){
+  var btnLivreur=deviceLivreurAutorise()
+    ?'<button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button>'
+    :'<div class="btn-photo" style="opacity:.7;cursor:default;background:rgba(255,255,255,.08);"><div class="btn-photo-icon">🔒</div><div class="btn-photo-text"><span class="btn-photo-label">Accès livreur verrouillé</span><span class="btn-photo-desc">Demandez le lien d\'accès à votre responsable</span></div></div>';
+  return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns">'+btnLivreur+'<button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';
+}
 function renderLivreurName(){
   var saisieManuelle=state.showLivreurSaisieManuelle||state.livreurs.length===0;
   var html='<div class="login-form-photo"><div class="login-form-card"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-dark">Bonjour !</h1><p class="login-form-sub login-form-sub-dark">'+(saisieManuelle?'Votre prénom et nom pour continuer':'Choisissez votre nom pour continuer')+'</p></div>';
@@ -3500,7 +3675,7 @@ function renderKeepScroll(){
 document.getElementById('app').addEventListener('click',async function(e){var el=e.target.closest('[data-action]');if(!el)return;var action=el.getAttribute('data-action'),id=el.getAttribute('data-id');if(action==='noop'){e.stopPropagation();return;}
 if(action==='goto-choose'){state.screen='choose';state.loginError='';render();return;}
 if(action==='goto-password'){state.screen='password';state.loginError='';render();return;}
-if(action==='goto-livreur-name'){state.screen='livreur-name';state.loginError='';render();return;}
+if(action==='goto-livreur-name'){if(!deviceLivreurAutorise())return;state.screen='livreur-name';state.loginError='';render();return;}
 if(action==='check-livreur-select'){
   var sel=document.getElementById('l-livreur-select').value;
   if(!sel){state.loginError='Choisissez votre nom dans la liste.';render();return;}
@@ -3827,6 +4002,34 @@ if(action==='download-qr-code'){
   return;
 }
 if(action==='close-livreurs'){state.showLivreurs=false;render();return;}
+if(action==='regen-livreur-access'){if(!state.livreurAccessToken||confirm('Régénérer le lien invalidera l\'ancien lien pour tous les appareils qui ne l\'ont pas encore ouvert. Continuer ?')){genererLienLivreurAccess();}return;}
+if(action==='share-livreur-access'){partagerLienLivreurAccess();return;}
+if(action==='copy-livreur-access'){
+  var urlToCopy=lienLivreurAccessUrl();
+  if(!urlToCopy)return;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(urlToCopy).then(function(){alert('Lien copié.');}).catch(function(){var inp2=document.getElementById('livreur-access-url');if(inp2){inp2.select();document.execCommand('copy');}alert('Lien copié.');});
+  } else {
+    var inp=document.getElementById('livreur-access-url');
+    if(inp){inp.select();document.execCommand('copy');}
+    alert('Lien copié.');
+  }
+  return;
+}
+if(action==='caissesvis-select-all'){state.caissesVisibles={mode:'all',clients:[]};saveCaissesVisibles(state.date,state.caissesVisibles);render();return;}
+if(action==='caissesvis-select-none'){state.caissesVisibles={mode:'none',clients:[]};saveCaissesVisibles(state.date,state.caissesVisibles);render();return;}
+if(action==='toggle-caissesvis-client'){
+  var clientVis=el.getAttribute('data-client');
+  var cvActuel=state.caissesVisibles||{mode:'none',clients:[]};
+  var clientsAujourdhuiVis=Array.from(new Set(state.deliveries.map(function(d){return d.client;}).filter(Boolean)));
+  var ensembleActuel=cvActuel.mode==='all'?clientsAujourdhuiVis.slice():(cvActuel.clients||[]).slice();
+  var posVis=ensembleActuel.indexOf(clientVis);
+  if(posVis===-1)ensembleActuel.push(clientVis);else ensembleActuel.splice(posVis,1);
+  state.caissesVisibles={mode:'list',clients:ensembleActuel};
+  saveCaissesVisibles(state.date,state.caissesVisibles);
+  render();
+  return;
+}
 if(action==='submit-add-livreur'){var nm=document.getElementById('nl-name').value.trim();var ph=document.getElementById('nl-phone').value.trim();if(!nm)return;addLivreur(nm,ph);render();return;}
 if(action==='submit-add-wa-contact'){
   var waNomEl=document.getElementById('wa-nom');
