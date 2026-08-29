@@ -1861,12 +1861,12 @@ function parsePdfText(text){
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
     // Quantité sur même ligne : "Boule T80 65"
-    var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
+    var m1=l.match(/^(.{3,})\s+(\d{1,6})\s*$/);
     if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&m1[1].trim().length>2){
       products.push(m1[1].trim()+' x'+m1[2]); continue;
     }
     // Quantité sur ligne suivante : "Boule T80" puis "65"
-    if(i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())){
+    if(i+1<lines.length&&/^\d{1,6}$/.test(lines[i+1].trim())){
       var qty=parseInt(lines[i+1].trim());
       if(qty>0&&l.length>2&&!skipProd.test(l)){
         products.push(l+' x'+qty); i++;
@@ -1896,24 +1896,25 @@ function readPdf(file){if(!window.pdfjsLib){state.pdfParsing=false;state.errorMs
 
 function extractPdfPageTextAndItems(arrayBuffer){
   return pdfjsLib.getDocument({data:new Uint8Array(arrayBuffer)}).promise.then(function(pdf){
-    var pages=[];for(var p=1;p<=pdf.numPages;p++)pages.push(p);
+    var pageNums=[];for(var p=1;p<=pdf.numPages;p++)pageNums.push(p);
     var firstPageWidth=612,firstPageItems=[],firstPageStyles={};
-    return Promise.all(pages.map(function(p){
+    var toutesLesPages=[]; // une entree par page : {pageWidth, items} — sert a l'extraction produit multi-pages
+    return Promise.all(pageNums.map(function(p){
       return pdf.getPage(p).then(function(pg){
-        if(p===1&&pg.view&&pg.view.length===4&&pg.view[2])firstPageWidth=pg.view[2];
+        var pageWidth=(pg.view&&pg.view.length===4&&pg.view[2])?pg.view[2]:612;
+        if(p===1)firstPageWidth=pageWidth;
         return pg.getTextContent().then(function(c){
-          if(p===1){
-            firstPageItems=c.items.map(function(it){
-              var tf=it.transform;
-              return{str:it.str,x:(tf&&typeof tf[4]==='number')?tf[4]:0,y:(tf&&typeof tf[5]==='number')?tf[5]:0,fontName:it.fontName||''};
-            });
-            firstPageStyles=c.styles||{};
-          }
+          var items=c.items.map(function(it){
+            var tf=it.transform;
+            return{str:it.str,x:(tf&&typeof tf[4]==='number')?tf[4]:0,y:(tf&&typeof tf[5]==='number')?tf[5]:0,fontName:it.fontName||''};
+          });
+          toutesLesPages[p-1]={pageWidth:pageWidth,items:items};
+          if(p===1){firstPageItems=items;firstPageStyles=c.styles||{};}
           return c.items.map(function(it){return it.str;}).join('\n');
         });
       });
     })).then(function(texts){
-      return{text:texts.join('\n'),pageData:{pageWidth:firstPageWidth,items:firstPageItems,styles:firstPageStyles}};
+      return{text:texts.join('\n'),pageData:{pageWidth:firstPageWidth,items:firstPageItems,styles:firstPageStyles},pages:toutesLesPages};
     });
   });
 }
@@ -2036,17 +2037,14 @@ function estUnNomDeProduitPlausible(texte){
 // vraie valeur dans la colonne Quantite, en face de son texte dans la colonne Designation.
 // Plus robuste que l'ancienne methode par texte a plat, qui pouvait a tort capter une
 // adresse ou toute autre ligne se terminant par un nombre, meme hors du tableau.
-function extractProductsByPosition(pageData){
-  if(!pageData||!pageData.items||!pageData.items.length)return null;
-  var items=pageData.items.filter(function(it){return it.str&&it.str.trim();});
-  var enteteDesignation=items.find(function(it){return /^d[eé]signation$/i.test(it.str.trim());});
-  var enteteQuantite=items.find(function(it){return /^quantit[eé]$/i.test(it.str.trim());});
-  if(!enteteDesignation||!enteteQuantite)return null; // entetes introuvables -> repli sur l'ancienne methode
-  var xQuantite=enteteQuantite.x,yEntete=enteteDesignation.y;
-  // Items sous l'entete uniquement (y strictement inferieur, l'axe Y du PDF remonte vers le haut)
-  var itemsSousEntete=items.filter(function(it){return it.y<yEntete-2;});
+// Extrait les produits d'UNE page (items deja filtres non-vides), etant donne la position de
+// la colonne Quantite et l'ordonnee de l'entete (si cette page a son propre entete "Designation"/
+// "Quantite" ; sinon yEntete=null et toute la page est consideree comme etant sous le tableau,
+// cas typique d'une page de continuation d'un BL sur plusieurs pages qui ne repete pas l'entete).
+function extraireProduitsDunePage(items,frontiere,quantiteADroite,yEntete){
+  var itemsUtiles=(yEntete===null)?items:items.filter(function(it){return it.y<yEntete-2;});
   var lignes=[];
-  itemsSousEntete.forEach(function(it){
+  itemsUtiles.forEach(function(it){
     var ligne=lignes.filter(function(l){return Math.abs(l.y-it.y)<3;})[0];
     if(!ligne){ligne={y:it.y,items:[]};lignes.push(ligne);}
     ligne.items.push(it);
@@ -2056,29 +2054,57 @@ function extractProductsByPosition(pageData){
     ligne.texteComplet=ligne.items.slice().sort(function(a,b){return a.x-b.x;}).map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
   });
   var produits=[];
-  // Regle structurelle, independante de toute largeur/position absolue : on part de la colonne
-  // QUANTITE (juste a droite de l'entete "Quantite", sans limite de largeur arbitraire). Une
-  // ligne n'est retenue QUE si tout ce qui s'y trouve, a partir de cette colonne, forme UN SEUL
-  // nombre et rien d'autre (pas un texte contenant des chiffres, ex: "TVA : FR 59 421 380" ou un
-  // numero de telephone) : c'est cette purete qui protege contre tout texte hors tableau, quelle
-  // que soit sa position exacte sur la page. Le nom du produit est alors lu en face, dans la
-  // colonne DESIGNATION, sur cette meme ligne.
+  // Regle structurelle, independante de toute largeur/position absolue ET de l'ordre des
+  // colonnes (Quantite peut etre a droite OU a gauche de Designation selon le BL) : la
+  // frontiere est le milieu entre les deux entetes detectees sur CETTE page. Une ligne n'est
+  // retenue QUE si tout ce qui s'y trouve, du cote Quantite, forme UN SEUL nombre et rien
+  // d'autre (pas un texte contenant des chiffres, ex: "TVA : FR 59 421 380" ou un numero de
+  // telephone) : c'est cette purete qui protege contre tout texte hors tableau, quelle que soit
+  // sa position exacte sur la page. Le nom du produit est alors lu en face, du cote Designation,
+  // sur cette meme ligne.
   for(var li=0;li<lignes.length;li++){
     var ligne=lignes[li];
-    if(looksLikeFooterZone.test(ligne.texteComplet))break; // sortie du cadre tableau : on s'arrete net
-    var itemsQuantite=ligne.items.filter(function(it){return it.x>=xQuantite-5;});
-    if(!itemsQuantite.length)continue; // rien dans la colonne Quantite sur cette ligne -> on ignore
+    if(looksLikeFooterZone.test(ligne.texteComplet))break; // sortie du cadre tableau (fin de page) : on s'arrete pour CETTE page
+    var itemsQuantite=ligne.items.filter(function(it){return quantiteADroite?(it.x>=frontiere):(it.x<=frontiere);});
+    if(!itemsQuantite.length)continue; // rien du cote Quantite sur cette ligne -> on ignore
     var texteQuantiteBrut=itemsQuantite.map(function(it){return it.str;}).join('').replace(/\s+/g,'').trim();
-    if(!/^\d{1,4}$/.test(texteQuantiteBrut))continue; // la case Quantite doit contenir UNIQUEMENT un nombre, rien d'autre -> sinon on ignore
+    if(!/^\d{1,6}$/.test(texteQuantiteBrut))continue; // la case Quantite doit contenir UNIQUEMENT un nombre, rien d'autre -> sinon on ignore
     var qte=parseInt(texteQuantiteBrut,10);
     if(!(qte>0))continue;
-    var itemsDesignation=ligne.items.filter(function(it){return it.x<xQuantite-5;});
+    var itemsDesignation=ligne.items.filter(function(it){return quantiteADroite?(it.x<frontiere):(it.x>frontiere);});
     if(!itemsDesignation.length)continue; // rien en face dans Designation -> on ignore
     itemsDesignation.sort(function(a,b){return a.x-b.x;});
     var nomDesignation=itemsDesignation.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
     if(nomDesignation.length>1&&estUnNomDeProduitPlausible(nomDesignation)){
       produits.push({name:nomDesignation,qty:qte});
     }
+  }
+  return produits;
+}
+// Parcourt TOUTES les pages du PDF (un BL peut deborder sur 2 pages ou plus) : la position des
+// colonnes est recalculee sur chaque page qui repete l'entete "Designation"/"Quantite" (ou une
+// variante : Article/Produit/Libelle, Qte/Qty...) ; pour une page de continuation qui ne le
+// repete pas, on reutilise la position detectee sur la derniere page qui l'avait (meme
+// document, memes colonnes), et on traite alors toute la page comme etant sous le tableau.
+function extractProductsByPosition(pages){
+  if(!pages||!pages.length)return null;
+  var frontiereCourante=null,quantiteADroiteCourant=null;
+  var produits=[];
+  for(var pi=0;pi<pages.length;pi++){
+    var page=pages[pi];
+    if(!page||!page.items||!page.items.length)continue;
+    var items=page.items.filter(function(it){return it.str&&it.str.trim();});
+    var enteteDesignation=items.find(function(it){return /^(d[eé]signations?|articles?|produits?|libell[eé]s?)$/i.test(it.str.trim());});
+    var enteteQuantite=items.find(function(it){return /^(quantit[eé]s?|qt[eé]s?|qtys?)$/i.test(it.str.trim());});
+    var yEntete=null;
+    if(enteteDesignation&&enteteQuantite){
+      frontiereCourante=(enteteDesignation.x+enteteQuantite.x)/2;
+      quantiteADroiteCourant=enteteQuantite.x>enteteDesignation.x;
+      yEntete=enteteDesignation.y;
+    } else if(frontiereCourante===null){
+      continue; // pas encore trouve d'entete sur aucune page precedente -> impossible de situer les colonnes sur cette page
+    }
+    produits=produits.concat(extraireProduitsDunePage(items,frontiereCourante,quantiteADroiteCourant,yEntete));
   }
   return produits.length?produits:null;
 }
@@ -2092,12 +2118,12 @@ function extractProducts(text,tourneeTitleToSkip){
     if(tourneeTitleToSkip&&l===tourneeTitleToSkip)continue; // le titre de tournee (ex: "CLERMONT 1") n'est jamais un produit
     if(looksLikeInstruction.test(l))continue; // une consigne (ex: "LIVRAISON AVANT 8H00 - CODE 1234") n'est jamais un produit, meme si elle se termine par un nombre
     // Quantite sur la meme ligne : "Boule T80 65"
-    var m1=l.match(/^(.{3,})\s+(\d{1,4})\s*$/);
+    var m1=l.match(/^(.{3,})\s+(\d{1,6})\s*$/);
     if(m1&&parseInt(m1[2])>0&&!skipProd.test(m1[1].trim())&&!looksLikePhone.test(m1[1].trim())&&m1[1].trim().length>2&&estUnNomDeProduitPlausible(m1[1].trim())){
       products.push({name:m1[1].trim(),qty:parseInt(m1[2])}); continue;
     }
     // Quantite sur la ligne suivante : "Boule T80" puis "65"
-    if(i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())){
+    if(i+1<lines.length&&/^\d{1,6}$/.test(lines[i+1].trim())){
       var qty=parseInt(lines[i+1].trim());
       if(qty>0&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&estUnNomDeProduitPlausible(l)){
         products.push({name:l,qty:qty}); i++;
@@ -2118,9 +2144,9 @@ function extractConsigne(text,tourneeTitleToSkip){
   for(var i=0;i<lines.length;i++){
     var l=lines[i];
     if(tourneeTitleToSkip&&l===tourneeTitleToSkip)continue;
-    var mSameLine=!looksLikeInstruction.test(l)?l.match(/^(.{3,})\s+(\d{1,4})\s*$/):null;
+    var mSameLine=!looksLikeInstruction.test(l)?l.match(/^(.{3,})\s+(\d{1,6})\s*$/):null;
     var estProduitMemeLigne=!!(mSameLine&&parseInt(mSameLine[2])>0&&!skipProd.test(mSameLine[1].trim())&&!looksLikePhone.test(mSameLine[1].trim())&&mSameLine[1].trim().length>2);
-    var estProduitLigneSuivante=i+1<lines.length&&/^\d{1,4}$/.test(lines[i+1].trim())&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&!looksLikeInstruction.test(l);
+    var estProduitLigneSuivante=i+1<lines.length&&/^\d{1,6}$/.test(lines[i+1].trim())&&l.length>2&&!skipProd.test(l)&&!looksLikePhone.test(l)&&!looksLikeInstruction.test(l);
     if(estProduitMemeLigne){dernierIndexProduit=i;continue;}
     if(estProduitLigneSuivante){dernierIndexProduit=i+1;continue;}
   }
@@ -2129,7 +2155,7 @@ function extractConsigne(text,tourneeTitleToSkip){
   for(var j=dernierIndexProduit+1;j<lines.length;j++){
     var lj=lines[j];
     if(looksLikeFooter.test(lj))break; // on sort du cadre du tableau : on s'arrete net
-    if(/^\d{1,4}$/.test(lj))continue;
+    if(/^\d{1,6}$/.test(lj))continue;
     if(skipProd.test(lj)||looksLikePhone.test(lj))continue;
     if(lj.length<4)continue;
     consignes.push(lj);
@@ -2166,7 +2192,7 @@ function importBlPdfsBulk(fileList){
   var files=Array.prototype.slice.call(fileList);
   if(!files.length)return;
   state.pdfParsing=true;render();
-  var results={created:0,duplicates:0,skipped:0};
+  var results={created:0,duplicates:0,skipped:0,sansTexte:0};
   function processNext(i){
     if(i>=files.length){
       state.pdfParsing=false;
@@ -2175,6 +2201,7 @@ function importBlPdfsBulk(fileList){
       var msg=results.created+' BL importé(s).';
       if(results.duplicates)msg+=' '+results.duplicates+' doublon(s) ignoré(s).';
       if(results.skipped)msg+=' '+results.skipped+' fichier(s) illisible(s).';
+      if(results.sansTexte)msg+=' ⚠️ '+results.sansTexte+' BL sans texte detectable (probablement un scan/image) : a completer manuellement, ils sont marques dans la liste.';
       alert(msg);
       return;
     }
@@ -2184,10 +2211,11 @@ function importBlPdfsBulk(fileList){
       var originalPdfBase64=arrayBufferToBase64(e.target.result);
       extractPdfPageTextAndItems(e.target.result).then(function(res){
         var text=res.text;
+        var texteAbsent=!text||!text.replace(/\s+/g,'').length; // aucun texte extractible -> probablement un PDF scanne/image, pas du texte reel
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
         var clientName=extractClientNameByPosition(res.pageData,tourneeInfo.tourneeTitle)||extractClientName(text);
-        var products=extractProductsByPosition(res.pageData)||extractProducts(text,tourneeInfo.tourneeTitle);
+        var products=extractProductsByPosition(res.pages)||extractProducts(text,tourneeInfo.tourneeTitle);
         // Un "produit" ne peut jamais etre exactement le nom du client (ex: "CNC Hotel") : si
         // c'est le cas, c'est que le nom du client s'est glisse par erreur dans le tableau.
         if(products&&clientName){
@@ -2206,7 +2234,7 @@ function importBlPdfsBulk(fileList){
         var refParts=[];
         if(blNum)refParts.push('N° '+blNum);
         products.forEach(function(p){refParts.push(p.name+' x'+p.qty);});
-        var entry={id:genId(),client:clientName||(blNum?'BL n°'+blNum:'BL sans numero'),address:'',time:'',ref:refParts.join(', '),instructions:consigne,status:'pending',deliveredAt:null,
+        var entry={id:genId(),client:(texteAbsent?'⚠️ A verifier (PDF illisible) ':'')+(clientName||(blNum?'BL n°'+blNum:'BL sans numero')),address:'',time:'',ref:refParts.join(', '),instructions:consigne,status:'pending',deliveredAt:null,
           livreur:tourneeMate?tourneeMate.livreur:'',livreurPhone:tourneeMate?tourneeMate.livreurPhone:'',
           note:'',blNum:blNum||'',blPdf:originalPdfBase64,
           tourneeNum:tourneeInfo.tourneeNum||'',tourneeTitle:tourneeMate?tourneeMate.tourneeTitle:(tourneeInfo.tourneeTitle||''),
@@ -2214,6 +2242,7 @@ function importBlPdfsBulk(fileList){
         persist(state.deliveries.concat([entry]));
         syncDeliveryAttachments(entry.id);
         results.created++;
+        if(texteAbsent)results.sansTexte++;
         processNext(i+1);
       }).catch(function(){
         results.skipped++;
