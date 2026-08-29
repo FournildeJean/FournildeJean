@@ -508,6 +508,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--body);min-height
 .row-check{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;cursor:pointer;accent-color:var(--red);z-index:5;}
 .sel-mode .delivery-row .row-body{padding-left:36px;}
 .btn-sel-mode{padding:6px 10px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;background:var(--paper-2);border:1px solid var(--rule);color:var(--ink-2);letter-spacing:.04em;}
+.toast-caisses{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1A1208;color:#FCE788;font-size:13px;font-weight:700;padding:12px 18px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:999;max-width:88vw;text-align:center;animation:toastFade 2s ease forwards;}
+@keyframes toastFade{0%{opacity:0;transform:translateX(-50%) translateY(8px);}10%{opacity:1;transform:translateX(-50%) translateY(0);}85%{opacity:1;}100%{opacity:0;}}
 
 /* ===== RESPONSIVE (consolidated) ===== */
 @media(min-width:640px){.modal-overlay{align-items:center;}.modal-sheet{border-radius:18px;border:3px solid var(--ink);max-width:600px;}.shell{max-width:860px;}.app-header{padding:24px 24px 0;}.app-sub{padding:10px 24px;}.date-row .date-center{font-size:15px;}.date-arr{width:50px;height:50px;font-size:22px;}.stats-strip .stat-num{font-size:30px;}.stats-strip .stat-lbl{font-size:10px;}.stat-cell{padding:14px 8px 10px;}.row-body{padding:13px 24px 13px 16px;}.row-client{font-size:15px;}.row-address{font-size:12px;}.hour-head{padding:10px 24px 8px;}.resp-action{padding:14px 8px;}.resp-action-icon{font-size:22px;}.resp-action-lbl{font-size:9px;}.camion-card{margin:16px;border-radius:12px;}.camion-finput{font-size:14px;padding:10px;}.btn-photo-brand{font-size:40px;}.rnav-btn{padding:12px 8px;}.rnav-icon{font-size:22px;}.rnav-lbl{font-size:9px;}.delivery-row{border-radius:6px;margin-bottom:3px;}.resp-actions .resp-action{padding:14px 8px;}.livreur-list .livreur-item{padding:14px 18px;}.livreur-name{font-size:15px;}}
@@ -778,7 +780,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurAccessToken:null,livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
+var state={screen:'choose',role:null,loginError:'',livreurAccessToken:null,toastMessage:null,livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;runCleanupIfDue();}
@@ -1596,7 +1598,7 @@ function exportRapportCaisses(dateFrom,dateTo){
 
   // Ligne 1 : nom de categorie (fusionne sur ses sous-colonnes) ; Ligne 2 : Livre / Recupere
   var row1=[{v:'Clients',t:'s',s:{fill:headerFill,font:{color:{rgb:WHITE},bold:true,sz:14},alignment:{horizontal:'center'},border:allBorders}}];
-  var row2=[{v:'',t:'s',s:{fill:headerFill,border:allBorders}}];
+  var row2=[{v:'Client',t:'s',s:{fill:headerFill,font:{color:{rgb:WHITE},bold:true,sz:11},alignment:{horizontal:'left'},border:allBorders}}];
   var merges=[{s:{r:0,c:0},e:{r:1,c:0}}];
   var colIndex=1;
   CONTENANTS.forEach(function(c){
@@ -1678,7 +1680,7 @@ function exportRapportCaisses(dateFrom,dateTo){
   wsSolde['!freeze']={ySplit:1};
   wsSolde['!autofilter']={ref:'A1:'+String.fromCharCode(65+categoriesRecuperables.length)+soldeAoa.length};
 
-  ws['!autofilter']={ref:'A1:'+String.fromCharCode(65+row2.length-1)+aoaRows.length};
+  ws['!autofilter']={ref:'A2:'+String.fromCharCode(65+row2.length-1)+aoaRows.length};
 
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Caisses par client');
@@ -3411,6 +3413,19 @@ function clientCaissesVisiblesAujourdhui(client){
   if(cv.mode==='list')return(cv.clients||[]).indexOf(client)!==-1;
   return false;
 }
+// Message temporaire (toast), affiche 2 secondes puis disparait tout seul, declenche a
+// l'ouverture du pointage d'un BL pour un client dont le compteur de caisses est visible
+// aujourd'hui (voir clientCaissesVisiblesAujourdhui).
+function declencherToastCaisses(client){
+  if(window._toastCaissesTimer)clearTimeout(window._toastCaissesTimer);
+  state.toastMessage='📢 Le responsable vous demande de compter les caisses pour ce client.';
+  render();
+  window._toastCaissesTimer=setTimeout(function(){state.toastMessage=null;render();},2000);
+}
+function renderToast(){
+  if(!state.toastMessage)return'';
+  return '<div class="toast-caisses">'+esc(state.toastMessage)+'</div>';
+}
 function renderContenantsSection(d){
   if(!clientCaissesVisiblesAujourdhui(d.client))return'';
   var pc=getPendingContenants();
@@ -3663,7 +3678,7 @@ function renderLivreurName(){
 
 function renderPassword(){return'<div class="login-form-photo"><div class="login-form-card login-form-card-teal"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🌾</span><h1 class="login-form-title login-form-title-light">Accès responsable</h1><p class="login-form-sub login-form-sub-light">Mot de passe requis</p></div><label class="form-label form-label-teal">Mot de passe</label><input class="form-input form-input-teal" id="l-pwd" type="password" placeholder="••••••••" /><button class="form-btn-teal" data-action="do-resp-login">Entrer</button><button class="form-back form-back-teal" data-action="goto-choose">← Retour</button><p class="form-error form-error-teal">'+esc(state.loginError)+'</p></div></div>';}
 
-function render(){var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();}
+function render(){var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();html+=renderToast();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();}
 function renderKeepScroll(){
   var sheet=document.querySelector('.modal-sheet');
   var y=sheet?sheet.scrollTop:window.scrollY;
@@ -4072,6 +4087,7 @@ if(action==='open-groupe-detail'){
     CONTENANTS.forEach(function(c){state.pendingContenants[c.key]=Object.assign({livre:0,recupere:0},premier.contenants[c.key]||{});});
   }
   render();
+  if(state.role==='livreur'&&premier&&premier.status==='pending'&&clientCaissesVisiblesAujourdhui(premier.client))declencherToastCaisses(premier.client);
   return;
 }
 if(action==='marquer-groupe-livre'){
@@ -4281,7 +4297,9 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv,blPdf:state.pdfData?state.pdfData.originalPdfBase64:null});
 }
-else if(action==='select'){state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();}
+else if(action==='select'){state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();
+  if(state.role==='livreur'){var dSel=state.deliveries.find(function(x){return x.id===id;});if(dSel&&dSel.status==='pending'&&clientCaissesVisiblesAujourdhui(dSel.client))declencherToastCaisses(dSel.client);}
+}
 else if(action==='close-detail'){
   var curD=state.deliveries.find(function(x){return x.id===state.selectedId;});
   if(curD&&curD.status==='pending'){
