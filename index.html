@@ -142,6 +142,9 @@ function listenLivreurAccessToken() {
     if(typeof window.onFbLivreurAccessToken === 'function') {
       window.onFbLivreurAccessToken(snap.exists() ? (snap.data().token || null) : null);
     }
+  }, function(error) {
+    console.error('Erreur lecture fdj-access/livreur:', error);
+    if(typeof window.onFbListenError === 'function') window.onFbListenError('fdj-access', error);
   });
 }
 window.listenLivreurAccessToken = listenLivreurAccessToken;
@@ -815,12 +818,27 @@ initFbLivreurAccess();
 function genererLienLivreurAccess(){
   var token=(Date.now().toString(36)+Math.random().toString(36).slice(2,10)).toUpperCase();
   state.livreurAccessToken=token;
+  state._livreurAccessVerif='en-cours';
+  render();
   function doSave(){
-    if(window.fbReady){window.fbSave('fdj-access','livreur',{token:token,updatedAt:new Date().toISOString()});}
-    else setTimeout(doSave,500);
+    if(window.fbReady){
+      window.fbSave('fdj-access','livreur',{token:token,updatedAt:new Date().toISOString()}).then(function(){
+        return window.fbModules.getDoc(window.fbModules.doc(window.fbDb,'fdj-access','livreur'));
+      }).then(function(snap){
+        var ok=snap.exists()&&snap.data().token===token;
+        state._livreurAccessVerif=ok?'ok':'echec';
+        render();
+        if(!ok)alert('⚠️ Le lien a été affiché mais n\'a PAS pu être vérifié comme réellement enregistré en ligne. Il ne fonctionnera probablement pas pour les livreurs. Vérifiez votre connexion et réessayez.');
+      }).catch(function(err){
+        state._livreurAccessVerif='echec';
+        render();
+        alert('⚠️ Échec de l\'enregistrement du lien en ligne : '+((err&&err.message)||'erreur inconnue')+'. Le lien affiché ne fonctionnera pas tant que ce problème n\'est pas résolu.');
+      });
+    } else {
+      setTimeout(doSave,500);
+    }
   }
   doSave();
-  render();
 }
 function lienLivreurAccessUrl(){
   if(!state.livreurAccessToken)return'';
@@ -3367,6 +3385,12 @@ function renderLivreurAccessSection(){
   var html='<div class="section-lbl">🔒 Accès livreur sécurisé</div>';
   html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Sans ce lien, la page "Je suis livreur" reste inaccessible à qui que ce soit. Un appareil qui l\'a ouvert une fois retrouve l\'accès automatiquement ensuite, sans mot de passe.</p>';
   if(actif){
+    var verif=state._livreurAccessVerif;
+    var verifHtml='';
+    if(verif==='en-cours')verifHtml='<div style="font-size:11px;color:var(--ink-3);margin-bottom:6px;">⏳ Vérification de l\'enregistrement en ligne…</div>';
+    else if(verif==='ok')verifHtml='<div style="font-size:11px;color:var(--teal-d);font-weight:700;margin-bottom:6px;">✅ Lien vérifié et actif en ligne — il fonctionnera pour tous les livreurs.</div>';
+    else if(verif==='echec')verifHtml='<div style="font-size:11px;color:var(--red);font-weight:700;margin-bottom:6px;">⚠️ Échec : ce lien n\'a pas pu être confirmé en ligne, il ne fonctionnera probablement pas. Réessayez ("Régénérer").</div>';
+    html+=verifHtml;
     html+='<div style="display:flex;gap:6px;align-items:center;background:var(--paper-2);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'+
       '<input id="livreur-access-url" type="text" readonly value="'+esc(url)+'" style="flex:1;min-width:0;border:none;background:transparent;font-size:11px;color:var(--ink-3);font-family:var(--mono);"/>'+
       '<button class="btn-outline" style="padding:5px 10px;font-size:11px;white-space:nowrap;" data-action="copy-livreur-access">Copier</button></div>';
@@ -4491,6 +4515,9 @@ window.onFbListenError=function(collection_name, err){
   if(collection_name==='fdj-caisses'){
     state._caissesSyncError=(err&&err.message)||'Erreur de synchronisation inconnue';
     render();
+  }
+  if(collection_name==='fdj-access'){
+    console.error('Impossible de verifier le lien d\'acces livreur (regles Firestore ou reseau) :',err);
   }
 };
 
