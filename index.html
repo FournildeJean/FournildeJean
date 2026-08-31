@@ -2762,9 +2762,9 @@ function renderDashboardModal(){
         '<button class="btn-rapport-cancel" data-action="close-dashboard">← Retour</button>'+
         '<button class="btn-rapport-go" data-action="gen-dashboard">📊 Actualiser</button>'+
       '</div>'+
-      body+
-      (stats?'<button class="btn-outline" style="width:100%;margin-top:6px;padding:11px;" data-action="print-dashboard">🖨 Version imprimable / PDF</button>':'')+
+      (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="print-dashboard">🖨 Version imprimable / PDF</button>':'')+
       (stats?'<button class="btn-outline" style="width:100%;margin-top:8px;padding:11px;" data-action="export-detailed-excel">💾 Export Excel (Livraisons + Camions)</button>':'')+
+      body+
     '</div>'+
   '</div>';
 }
@@ -3347,21 +3347,21 @@ function renderScannerModal(){
 function renderCaissesVisibilitySection(){
   var cv=state.caissesVisibles||{mode:'all',clients:[]};
   var toutCoche=cv.mode==='all';
-  // Regroupement par tournee : chaque client apparait sous l'entete de sa tournee du jour,
-  // pour retrouver facilement qui cocher/decocher tournee par tournee. Les livraisons sans
-  // tournee assignee sont regroupees a part, en dernier.
+  // Regroupement par NUMERO de tournee (comme le reste de l'app) : chaque client apparait
+  // dans le cadre de sa tournee du jour, pour retrouver facilement qui cocher/decocher
+  // tournee par tournee. Les livraisons sans tournee assignee sont regroupees a part, en dernier.
   var parTournee={},ordreTournees=[];
   state.deliveries.forEach(function(d){
     if(!d.client)return;
-    var t=d.tourneeTitle||'Sans tournée';
-    if(!parTournee[t]){parTournee[t]=[];ordreTournees.push(t);}
-    if(parTournee[t].indexOf(d.client)===-1)parTournee[t].push(d.client);
+    var key=d.tourneeNum||'sans';
+    if(!parTournee[key]){parTournee[key]={tourneeNum:d.tourneeNum,tourneeTitle:d.tourneeTitle,clients:[]};ordreTournees.push(key);}
+    if(parTournee[key].clients.indexOf(d.client)===-1)parTournee[key].clients.push(d.client);
   });
-  ordreTournees.forEach(function(t){parTournee[t].sort(function(a,b){return a.localeCompare(b,'fr');});});
+  ordreTournees.forEach(function(key){parTournee[key].clients.sort(function(a,b){return a.localeCompare(b,'fr');});});
   ordreTournees.sort(function(a,b){
-    if(a==='Sans tournée')return 1;
-    if(b==='Sans tournée')return-1;
-    return a.localeCompare(b,'fr',{numeric:true});
+    if(a==='sans')return 1;
+    if(b==='sans')return-1;
+    return String(a).localeCompare(String(b),'fr',{numeric:true});
   });
   var html='<div class="divider"></div><div class="section-lbl">🧺 Compteur de caisses visible côté livreur (aujourd\'hui uniquement)</div>';
   html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Tous les clients sont sélectionnés par défaut chaque jour : décochez ceux pour lesquels le livreur ne doit pas voir le compteur de caisses, ou utilisez "Aucun". Remis à "Tous sélectionnés" automatiquement le lendemain.</p>';
@@ -3372,13 +3372,18 @@ function renderCaissesVisibilitySection(){
   if(!ordreTournees.length){
     html+='<p style="font-size:12px;color:var(--ink-3);text-align:center;padding:6px 0;">Aucun client dans la tournée du jour.</p>';
   } else {
-    html+='<div id="caissesvis-list-scroll" data-preserve-scroll style="max-height:320px;overflow-y:auto;border:1px solid var(--rule);border-radius:8px;padding:2px 6px;">';
-    ordreTournees.forEach(function(tournee,ti){
-      html+='<div style="font-size:10.5px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;padding:'+(ti>0?'12px':'6px')+' 4px 4px;'+(ti>0?'border-top:1px solid var(--rule);':'')+'">🚚 '+esc(tournee)+'</div>';
-      parTournee[tournee].forEach(function(client){
+    html+='<div id="caissesvis-list-scroll" data-preserve-scroll style="max-height:320px;overflow-y:auto;">';
+    ordreTournees.forEach(function(key){
+      var g=parTournee[key];
+      var titreTournee=key==='sans'?'Sans tournée':'Tournée '+esc(g.tourneeNum)+(g.tourneeTitle?' — '+esc(g.tourneeTitle):'');
+      html+='<div style="border:2px solid var(--ink);border-radius:8px;margin-bottom:10px;overflow:hidden;">';
+      html+='<div style="font-size:11px;font-weight:800;color:var(--paper);background:var(--ink);text-transform:uppercase;letter-spacing:.05em;padding:7px 8px;">🚚 '+titreTournee+'</div>';
+      html+='<div style="padding:0 6px;">';
+      g.clients.forEach(function(client,idx){
         var coche=toutCoche||(cv.mode==='list'&&(cv.clients||[]).indexOf(client)!==-1);
-        return html+='<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:12.5px;cursor:pointer;"><input type="checkbox" data-action="toggle-caissesvis-client" data-client="'+esc(client)+'" '+(coche?'checked':'')+'/> '+esc(client)+'</label>';
+        html+='<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:12.5px;cursor:pointer;'+(idx>0?'border-top:1px solid var(--rule);':'')+'"><input type="checkbox" data-action="toggle-caissesvis-client" data-client="'+esc(client)+'" '+(coche?'checked':'')+'/> '+esc(client)+'</label>';
       });
+      html+='</div></div>';
     });
     html+='</div>';
   }
