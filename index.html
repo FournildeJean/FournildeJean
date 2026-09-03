@@ -815,6 +815,7 @@ function initFbLivreurAccess(){
   window._unsubLivreurAccess=window.listenLivreurAccessToken();
 }
 initFbLivreurAccess();
+geocoderFournilSiBesoin();
 function genererLienLivreurAccess(){
   var token=(Date.now().toString(36)+Math.random().toString(36).slice(2,10)).toUpperCase();
   state.livreurAccessToken=token;
@@ -1086,21 +1087,28 @@ function initTrajetMap(){
     return;
   }
   if(typeof L==='undefined')return;
-  var liv=state.showTrajet;
-  var items=state.deliveries.filter(function(d){return d.livreur===liv&&d.geoLat&&d.geoLng&&d.deliveredAt;});
-  items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
+  var res=getTrajetItemsForCamion(state.showTrajet);
+  var items=res.items,fournilGeo=res.fournilGeo;
   if(!items.length)return;
   if(trajetMapInstance){trajetMapInstance.remove();trajetMapInstance=null;}
   trajetMapInstance=L.map('trajet-map');
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
     attribution:'© OpenStreetMap contributors',maxZoom:19
   }).addTo(trajetMapInstance);
-  var latlngs=items.map(function(d){return[d.geoLat,d.geoLng];});
+  var latlngs=[];
+  if(fournilGeo)latlngs.push([fournilGeo.lat,fournilGeo.lng]);
+  items.forEach(function(d){latlngs.push([d.geoLat,d.geoLng]);});
+  if(fournilGeo)latlngs.push([fournilGeo.lat,fournilGeo.lng]);
+  if(fournilGeo){
+    L.marker([fournilGeo.lat,fournilGeo.lng],{icon:L.divIcon({html:'🏠',className:'',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(trajetMapInstance)
+      .bindPopup('<b>🏠 Fournil</b><br>'+ADRESSE_FOURNIL);
+  }
   items.forEach(function(d,i){
     var heure=new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
     L.marker([d.geoLat,d.geoLng]).addTo(trajetMapInstance)
       .bindPopup('<b>'+(i+1)+'. '+d.client.replace(/</g,'&lt;')+'</b><br>'+heure);
   });
+  // Trace unique et classique (comme un itineraire Google Maps), pas de decoupage par couleur.
   L.polyline(latlngs,{color:'#0A6878',weight:3,opacity:0.8}).addTo(trajetMapInstance);
   trajetMapInstance.fitBounds(latlngs,{padding:[30,30]});
 }
@@ -3590,6 +3598,26 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
   if(d.note)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Constats</div><div style="font-size:13px;color:var(--ink-2);margin-top:4px;">'+esc(d.note)+'</div></div>';
   if(d.signature)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">Signature client</div><img src="'+d.signature+'" style="width:100%;border-radius:8px;margin-top:4px;max-height:80px;object-fit:contain;border:1px solid var(--rule);background:#fff;"/></div>';html+=renderShareRow(d);html+='<div class="actions-row">';if(state.role==='responsable'){if(d.blPdf)html+='<button class="btn-outline" data-action="download-bl" data-id="'+d.id+'">📋 BL</button>';html+='<button class="btn-danger" data-action="delete" data-id="'+d.id+'">🗑</button>';}html+='</div>';}html+='</div></div>';return html;}
 
+// Adresse fixe du fournil (point de depart/retour de chaque tournee). Geocodee une seule fois
+// via Nominatim (OpenStreetMap, deja utilise pour les tuiles de carte), puis mise en cache
+// localement pour ne plus jamais refaire la requete ensuite.
+var ADRESSE_FOURNIL='37 Rue Pierre Boulanger, 63100 Clermont-Ferrand';
+function getFournilGeo(){
+  var cached=idbGet('fdj-fournil-geo');
+  return(cached&&typeof cached.lat==='number'&&typeof cached.lng==='number')?cached:null;
+}
+function geocoderFournilSiBesoin(){
+  if(getFournilGeo())return;
+  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(ADRESSE_FOURNIL))
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(data&&data[0]){
+        idbSet('fdj-fournil-geo',{lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)});
+        render();
+      }
+    })
+    .catch(function(e){console.error('Geocodage de l\'adresse du fournil impossible :',e);});
+}
 function getTrajetItemsForCamion(camId){
   var cam=state.camions.find(function(c){return c.id===camId;});
   if(!cam)return{cam:null,items:[]};
@@ -3607,7 +3635,25 @@ function getTrajetItemsForCamion(camId){
     });
   }
   items.sort(function(a,b){return new Date(a.deliveredAt)-new Date(b.deliveredAt);});
-  return{cam:cam,livName:livName,items:items};
+  // Temps d'aller (prise du camion -> 1ere livraison) et de retour (derniere livraison -> depose
+  // du camion), calcules a partir des vraies heures de prise/depose deja saisies pour ce camion.
+  var tempsAllerMin=null,tempsRetourMin=null,dureeTotaleMin=null;
+  if(items.length&&cam.heurePrise){
+    var tPrise=new Date(state.date+'T'+cam.heurePrise+':00');
+    tempsAllerMin=Math.round((new Date(items[0].deliveredAt)-tPrise)/60000);
+    if(cam.heureDepose){
+      var tDepose=new Date(state.date+'T'+cam.heureDepose+':00');
+      tempsRetourMin=Math.round((tDepose-new Date(items[items.length-1].deliveredAt))/60000);
+      dureeTotaleMin=Math.round((tDepose-tPrise)/60000);
+    }
+  }
+  return{cam:cam,livName:livName,items:items,tempsAllerMin:tempsAllerMin,tempsRetourMin:tempsRetourMin,dureeTotaleMin:dureeTotaleMin,fournilGeo:getFournilGeo()};
+}
+function formatDureeMin(min){
+  if(min==null||isNaN(min))return'—';
+  if(min<0)return'—'; // horaires incoherents (ex: depose saisie avant la derniere livraison) -> on n'affiche rien plutot qu'un nombre negatif trompeur
+  var h=Math.floor(min/60),m=min%60;
+  return h>0?(h+'h'+(m>0?(m<10?'0':'')+m:'')):(min+' min');
 }
 function renderTrajetPickerModal(){
   if(!state.showTrajetPicker)return'';
@@ -3638,13 +3684,23 @@ function renderTrajetModal(){
   var html='<div class="modal-overlay" data-action="close-trajet"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">🗺️ '+esc(cam.camion||'Camion')+' — '+esc(liv)+'</h2><button class="modal-close" data-action="close-trajet">←</button></div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">Trajet réel de ce camion'+(cam.heurePrise?' ('+esc(cam.heurePrise)+(cam.heureDepose?'–'+esc(cam.heureDepose):'')+')':'')+', dans l\'ordre réel de validation</div>';
-  if(items.length<2){
-    html+='<div style="background:var(--paper-2);border-radius:8px;padding:12px;font-size:12px;color:var(--ink-2);">🗺️ Pas encore assez de livraisons avec position enregistrée pour ce camion (il en faut au moins 2).</div>';
+  if(!items.length){
+    html+='<div style="background:var(--paper-2);border-radius:8px;padding:12px;font-size:12px;color:var(--ink-2);">🗺️ Pas encore de livraison avec position enregistrée pour ce camion.</div>';
     html+='</div></div>';
     return html;
   }
+  if(res.dureeTotaleMin!=null){
+    html+='<div style="background:var(--teal-l);border:1px solid var(--teal);border-radius:8px;padding:10px 12px;margin-bottom:14px;text-align:center;"><span style="font-size:11px;color:var(--teal-d);text-transform:uppercase;letter-spacing:.05em;">Durée totale de la tournée</span><div style="font-size:20px;font-weight:800;color:var(--teal-d);">'+formatDureeMin(res.dureeTotaleMin)+'</div></div>';
+  }
   html+='<div id="trajet-map" style="width:100%;height:280px;border-radius:10px;margin-bottom:16px;background:var(--paper-2);"></div>';
   html+='<div class="section-lbl">Ordre réel des arrêts</div>';
+  if(cam.heurePrise){
+    html+='<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule);">'+
+      '<div style="width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;margin-right:10px;flex-shrink:0;">🏠</div>'+
+      '<div style="flex:1;"><div style="font-size:13px;font-weight:700;color:var(--ink);">Départ du fournil</div><div style="font-size:11px;color:var(--ink-3);">'+esc(cam.heurePrise)+'</div></div>'+
+    '</div>';
+    if(res.tempsAllerMin!=null)html+='<div style="font-size:11px;color:var(--teal-d);padding:4px 0 4px 36px;">→ '+formatDureeMin(res.tempsAllerMin)+' jusqu\'au premier arrêt</div>';
+  }
   items.forEach(function(d,i){
     var heure=new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
     html+='<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule);">'+
@@ -3653,9 +3709,16 @@ function renderTrajetModal(){
     '</div>';
     if(i<items.length-1){
       var deltaMin=Math.round((new Date(items[i+1].deliveredAt)-new Date(d.deliveredAt))/60000);
-      html+='<div style="font-size:11px;color:var(--teal-d);padding:4px 0 4px 36px;">⏱ '+deltaMin+' min jusqu\'à l\'arrêt suivant</div>';
+      html+='<div style="font-size:11px;color:var(--teal-d);padding:4px 0 4px 36px;">→ '+formatDureeMin(deltaMin)+' jusqu\'à l\'arrêt suivant</div>';
     }
   });
+  if(cam.heureDepose){
+    if(res.tempsRetourMin!=null)html+='<div style="font-size:11px;color:var(--teal-d);padding:4px 0 4px 36px;">→ '+formatDureeMin(res.tempsRetourMin)+' jusqu\'au retour</div>';
+    html+='<div style="display:flex;align-items:center;padding:8px 0;">'+
+      '<div style="width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;margin-right:10px;flex-shrink:0;">🏠</div>'+
+      '<div style="flex:1;"><div style="font-size:13px;font-weight:700;color:var(--ink);">Retour au fournil</div><div style="font-size:11px;color:var(--ink-3);">'+esc(cam.heureDepose)+'</div></div>'+
+    '</div>';
+  }
   html+='</div></div>';
   return html;
 }
