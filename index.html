@@ -135,20 +135,23 @@ function listenCaissesVisibles(date) {
 }
 window.listenCaissesVisibles = listenCaissesVisibles;
 
-// Acces livreur securise par lien secret : un seul jeton, commun a toute l'equipe, que le
-// responsable peut regenerer a tout moment (invalide alors l'ancien lien). Document unique,
-// prefixe fdj- comme le reste des collections.
-function listenLivreurAccessToken() {
-  return onSnapshot(doc(db, 'fdj-access', 'livreur'), function(snap) {
-    if(typeof window.onFbLivreurAccessToken === 'function') {
-      window.onFbLivreurAccessToken(snap.exists() ? (snap.data().token || null) : null);
+// Acces livreur securise par liens individuels A USAGE UNIQUE : chaque lien genere par le
+// responsable est independant des autres et ne peut etre reclame (consomme) que par UN SEUL
+// appareil, le premier a l'ouvrir. Si ce livreur transfere ensuite son propre lien a un
+// collegue, celui-ci trouve le lien deja marque "utilise" et n'obtient pas l'acces. Document
+// unique contenant la liste de tous les liens emis (utilises ou non), prefixe fdj- comme le
+// reste des collections.
+function listenLivreurAccessLiens() {
+  return onSnapshot(doc(db, 'fdj-access', 'liens'), function(snap) {
+    if(typeof window.onFbLivreurAccessLiens === 'function') {
+      window.onFbLivreurAccessLiens(snap.exists() ? (snap.data().liens || []) : []);
     }
   }, function(error) {
-    console.error('Erreur lecture fdj-access/livreur:', error);
+    console.error('Erreur lecture fdj-access/liens:', error);
     if(typeof window.onFbListenError === 'function') window.onFbListenError('fdj-access', error);
   });
 }
-window.listenLivreurAccessToken = listenLivreurAccessToken;
+window.listenLivreurAccessLiens = listenLivreurAccessLiens;
 
 // Pieces jointes (photos + PDF) : stockees a part, un document par livraison,
 // pour ne jamais faire grossir le document du jour au-dela de la limite Firestore (1 Mo).
@@ -782,15 +785,16 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurAccessToken:null,livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
+var state={screen:'choose',role:null,loginError:'',livreurAccessLiens:[],livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;runCleanupIfDue();}
 
-// --- Acces livreur securise par lien secret (sans mot de passe a taper) ---
-// Le lien contient un jeton (?la=...) genere/regenere par le responsable. Une fois ce lien
-// ouvert une fois sur un appareil, celui-ci memorise l'autorisation localement et retrouve
-// automatiquement l'espace livreur a chaque ouverture suivante, sans rien retaper.
+// --- Acces livreur securise par liens individuels a usage unique (sans mot de passe a taper) ---
+// Chaque lien contient un jeton (?la=...) propre a lui. Le PREMIER appareil qui l'ouvre le
+// "reclame" (marque comme utilise) et memorise l'autorisation localement. Si ce lien est ensuite
+// transfere a quelqu'un d'autre, celui-ci le trouve deja marque "utilise" et n'obtient PAS
+// l'acces : chaque lien ne peut donc servir qu'a une seule personne, une seule fois.
 (function(){
   var params=new URLSearchParams(location.search);
   var lienToken=params.get('la');
@@ -800,40 +804,58 @@ else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen
   }
 })();
 function deviceLivreurAutorise(){
-  if(!state.livreurAccessToken)return false; // jeton pas encore charge, ou aucun lien genere par le responsable
-  return localStorage.getItem('fdj-device-livreur-ok')===state.livreurAccessToken;
+  var tokenAppareil=localStorage.getItem('fdj-device-livreur-ok');
+  if(!tokenAppareil)return false;
+  // Autorise si ce jeton a bien ete emis un jour, peu importe qu'il soit marque "utilise" —
+  // c'est justement CET appareil qui l'a consomme lors de sa toute premiere ouverture.
+  return(state.livreurAccessLiens||[]).some(function(l){return l.token===tokenAppareil;});
 }
 function initFbLivreurAccess(){
   if(!window.fbReady){setTimeout(initFbLivreurAccess,500);return;}
-  window.onFbLivreurAccessToken=function(token){
-    state.livreurAccessToken=token||null;
-    if(window._pendingLivreurAccessToken&&token&&window._pendingLivreurAccessToken===token){
-      try{localStorage.setItem('fdj-device-livreur-ok',token);}catch(e){}
+  window.onFbLivreurAccessLiens=function(liens){
+    liens=liens||[];
+    state.livreurAccessLiens=liens;
+    if(window._pendingLivreurAccessToken){
+      var tokenAReclamer=window._pendingLivreurAccessToken;
+      var entree=liens.find(function(l){return l.token===tokenAReclamer;});
+      if(entree&&!entree.used){
+        // Reclamation reussie : ce lien n'avait encore jamais ete ouvert -> on le marque
+        // utilise et on memorise l'autorisation sur CET appareil.
+        var majListe=liens.map(function(l){return l.token===tokenAReclamer?Object.assign({},l,{used:true,usedAt:new Date().toISOString()}):l;});
+        state.livreurAccessLiens=majListe;
+        window.fbSave('fdj-access','liens',{liens:majListe});
+        try{localStorage.setItem('fdj-device-livreur-ok',tokenAReclamer);}catch(e){}
+      }
+      // Si le lien est introuvable ou deja marque "utilise" (transfere par quelqu'un d'autre
+      // qui l'a deja ouvert avant), on ne fait rien : cet appareil n'obtient pas l'acces.
       window._pendingLivreurAccessToken=null;
     }
     render();
   };
-  window._unsubLivreurAccess=window.listenLivreurAccessToken();
+  window._unsubLivreurAccess=window.listenLivreurAccessLiens();
 }
 initFbLivreurAccess();
 geocoderFournilSiBesoin();
 function genererLienLivreurAccess(){
   var token=(Date.now().toString(36)+Math.random().toString(36).slice(2,10)).toUpperCase();
-  state.livreurAccessToken=token;
-  state._livreurAccessVerif='en-cours';
+  var nouveauLien={token:token,used:false,createdAt:new Date().toISOString(),verif:'en-cours'};
+  // Affichage optimiste immediat : le lien apparait tout de suite dans la liste, complet et
+  // utilisable, sans attendre la confirmation d'enregistrement — pratique pour en generer
+  // plusieurs d'affilee sans perdre les precedents de vue.
+  state.livreurAccessLiens=(state.livreurAccessLiens||[]).concat([nouveauLien]);
   render();
   function doSave(){
     if(window.fbReady){
-      window.fbSave('fdj-access','livreur',{token:token,updatedAt:new Date().toISOString()}).then(function(){
-        return window.fbModules.getDoc(window.fbModules.doc(window.fbDb,'fdj-access','livreur'));
+      var listeAEnregistrer=state.livreurAccessLiens.map(function(l){return{token:l.token,used:l.used,createdAt:l.createdAt};}); // jamais le champ verif, purement local
+      window.fbSave('fdj-access','liens',{liens:listeAEnregistrer}).then(function(){
+        return window.fbModules.getDoc(window.fbModules.doc(window.fbDb,'fdj-access','liens'));
       }).then(function(snap){
-        var ok=snap.exists()&&snap.data().token===token;
-        state._livreurAccessVerif=ok?'ok':'echec';
-        render();
-        if(!ok)alert('⚠️ Le lien a été affiché mais n\'a PAS pu être vérifié comme réellement enregistré en ligne. Il ne fonctionnera probablement pas pour les livreurs. Vérifiez votre connexion et réessayez.');
+        var liensVerif=snap.exists()?(snap.data().liens||[]):[];
+        var ok=liensVerif.some(function(l){return l.token===token;});
+        marquerVerifLien(token,ok?'ok':'echec');
+        if(!ok)alert('⚠️ Le lien a été affiché mais n\'a PAS pu être vérifié comme réellement enregistré en ligne. Il ne fonctionnera probablement pas pour le livreur. Vérifiez votre connexion et réessayez.');
       }).catch(function(err){
-        state._livreurAccessVerif='echec';
-        render();
+        marquerVerifLien(token,'echec');
         alert('⚠️ Échec de l\'enregistrement du lien en ligne : '+((err&&err.message)||'erreur inconnue')+'. Le lien affiché ne fonctionnera pas tant que ce problème n\'est pas résolu.');
       });
     } else {
@@ -842,14 +864,24 @@ function genererLienLivreurAccess(){
   }
   doSave();
 }
-function lienLivreurAccessUrl(){
-  if(!state.livreurAccessToken)return'';
-  return location.origin+location.pathname+'?la='+encodeURIComponent(state.livreurAccessToken);
+function marquerVerifLien(token,statut){
+  state.livreurAccessLiens=(state.livreurAccessLiens||[]).map(function(l){return l.token===token?Object.assign({},l,{verif:statut}):l;});
+  render();
 }
-function partagerLienLivreurAccess(){
-  var url=lienLivreurAccessUrl();
+function lienLivreurAccessUrl(token){
+  if(!token)return'';
+  return location.origin+location.pathname+'?la='+encodeURIComponent(token);
+}
+function revoquerLienLivreurAccess(token){
+  var nouvelleListe=(state.livreurAccessLiens||[]).filter(function(l){return l.token!==token;});
+  state.livreurAccessLiens=nouvelleListe;
+  window.fbSave('fdj-access','liens',{liens:nouvelleListe.map(function(l){return{token:l.token,used:l.used,createdAt:l.createdAt};})});
+  render();
+}
+function partagerLienLivreurAccess(token){
+  var url=lienLivreurAccessUrl(token);
   if(!url)return;
-  var text='Lien d\'accès livreur Fournil de Jean (à ouvrir une seule fois sur le téléphone) :\n'+url;
+  var text='Lien d\'accès livreur Fournil de Jean, personnel et à usage unique (à ouvrir une seule fois, sur votre téléphone uniquement) :\n'+url;
   if(navigator.share){
     navigator.share({title:'Accès livreur',text:text,url:url}).catch(function(err){
       if(err&&err.name==='AbortError')return;
@@ -3593,27 +3625,35 @@ function renderCaissesVisibilitySection(){
   return html;
 }
 function renderLivreurAccessSection(){
-  var actif=!!state.livreurAccessToken;
-  var url=lienLivreurAccessUrl();
+  var liens=(state.livreurAccessLiens||[]).slice().sort(function(a,b){return(b.createdAt||'').localeCompare(a.createdAt||'');});
+  var enAttente=liens.filter(function(l){return!l.used;});
+  var enAttente=liens.filter(function(l){return!l.used;});
   var html='<div class="section-lbl">🔒 Accès livreur sécurisé</div>';
-  html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Sans ce lien, la page "Je suis livreur" reste inaccessible à qui que ce soit. Un appareil qui l\'a ouvert une fois retrouve l\'accès automatiquement ensuite, sans mot de passe.</p>';
-  if(actif){
-    var verif=state._livreurAccessVerif;
-    var verifHtml='';
-    if(verif==='en-cours')verifHtml='<div style="font-size:11px;color:var(--ink-3);margin-bottom:6px;">⏳ Vérification de l\'enregistrement en ligne…</div>';
-    else if(verif==='ok')verifHtml='<div style="font-size:11px;color:var(--teal-d);font-weight:700;margin-bottom:6px;">✅ Lien vérifié et actif en ligne — il fonctionnera pour tous les livreurs.</div>';
-    else if(verif==='echec')verifHtml='<div style="font-size:11px;color:var(--red);font-weight:700;margin-bottom:6px;">⚠️ Échec : ce lien n\'a pas pu être confirmé en ligne, il ne fonctionnera probablement pas. Réessayez ("Régénérer").</div>';
-    html+=verifHtml;
-    html+='<div style="display:flex;gap:6px;align-items:center;background:var(--paper-2);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'+
-      '<input id="livreur-access-url" type="text" readonly value="'+esc(url)+'" style="flex:1;min-width:0;border:none;background:transparent;font-size:11px;color:var(--ink-3);font-family:var(--mono);"/>'+
-      '<button class="btn-outline" style="padding:5px 10px;font-size:11px;white-space:nowrap;" data-action="copy-livreur-access">Copier</button></div>';
-    html+='<div style="display:flex;gap:8px;">'+
-      '<button class="btn-outline" style="flex:1;padding:8px;font-size:12px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="share-livreur-access">📤 Partager le lien</button>'+
-      '<button class="btn-outline" style="flex:1;padding:8px;font-size:12px;" data-action="regen-livreur-access">🔁 Régénérer</button>'+
+  html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Chaque lien est personnel et à usage unique : le premier appareil qui l\'ouvre l\'utilise définitivement — si ce livreur transfère ensuite son propre lien à un collègue, ça ne fonctionnera pas pour lui. Génère un nouveau lien pour chaque nouveau livreur, autant de fois que besoin : les anciens liens non utilisés restent valables.</p>';
+  html+='<button class="btn-outline" style="width:100%;padding:10px;font-size:13px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;margin-bottom:12px;" data-action="regen-livreur-access">🔗 Générer un nouveau lien</button>';
+  if(enAttente.length){
+    html+='<div style="font-size:10.5px;font-weight:800;color:var(--teal-d);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">⏳ Liens en attente, prêts à envoyer ('+enAttente.length+')</div>';
+    html+=enAttente.map(function(l){
+      var url=lienLivreurAccessUrl(l.token);
+      var verifHtml='';
+      if(l.verif==='en-cours')verifHtml='<div style="font-size:10.5px;color:var(--ink-3);margin-bottom:4px;">⏳ Vérification en ligne…</div>';
+      else if(l.verif==='echec')verifHtml='<div style="font-size:10.5px;color:var(--red);font-weight:700;margin-bottom:4px;">⚠️ Échec de vérification — ce lien risque de ne pas fonctionner.</div>';
+      return '<div style="border:1px solid var(--teal);background:var(--teal-l);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'+
+        verifHtml+
+        '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">'+
+          '<input type="text" readonly value="'+esc(url)+'" style="flex:1;min-width:0;border:none;background:transparent;font-size:11px;color:var(--teal-d);font-family:var(--mono);"/>'+
+          '<button class="btn-outline" style="padding:5px 8px;font-size:11px;white-space:nowrap;background:#fff;" data-action="copy-livreur-access" data-token="'+esc(l.token)+'">Copier</button>'+
+        '</div>'+
+        '<div style="display:flex;gap:6px;">'+
+          '<button class="btn-outline" style="flex:1;padding:6px;font-size:11.5px;background:var(--teal);border-color:var(--teal);color:#fff;font-weight:700;" data-action="share-livreur-access" data-token="'+esc(l.token)+'">📤 Partager</button>'+
+          '<button class="btn-outline" style="padding:6px 10px;font-size:11.5px;color:var(--red);border-color:var(--red);background:#fff;" data-action="revoke-livreur-access" data-token="'+esc(l.token)+'">🗑</button>'+
+        '</div>'+
       '</div>';
-  } else {
-    html+='<button class="btn-outline" style="width:100%;padding:10px;font-size:13px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="regen-livreur-access">🔗 Générer le lien d\'accès</button>';
+    }).join('');
   }
+  // Les liens deja utilises ne sont plus affiches ici (liste allegee, sur demande) : ils
+  // restent neanmoins conserves cote donnees, sans quoi le livreur qui a deja ouvert son lien
+  // perdrait son acces des sa prochaine visite.
   html+='<div class="divider"></div>';
   return html;
 }
@@ -4369,17 +4409,26 @@ if(action==='download-qr-code'){
   return;
 }
 if(action==='close-livreurs'){state.showLivreurs=false;render();return;}
-if(action==='regen-livreur-access'){if(!state.livreurAccessToken||confirm('Régénérer le lien invalidera l\'ancien lien pour tous les appareils qui ne l\'ont pas encore ouvert. Continuer ?')){genererLienLivreurAccess();}return;}
-if(action==='share-livreur-access'){partagerLienLivreurAccess();return;}
+if(action==='regen-livreur-access'){genererLienLivreurAccess();return;}
+if(action==='revoke-livreur-access'){
+  var tokenRevoke=el.getAttribute('data-token');
+  if(tokenRevoke&&confirm('Révoquer ce lien ? Il ne pourra plus jamais être utilisé.')){revoquerLienLivreurAccess(tokenRevoke);}
+  return;
+}
+if(action==='share-livreur-access'){partagerLienLivreurAccess(el.getAttribute('data-token'));return;}
 if(action==='copy-livreur-access'){
-  var urlToCopy=lienLivreurAccessUrl();
+  var urlToCopy=lienLivreurAccessUrl(el.getAttribute('data-token'));
   if(!urlToCopy)return;
   if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(urlToCopy).then(function(){alert('Lien copié.');}).catch(function(){var inp2=document.getElementById('livreur-access-url');if(inp2){inp2.select();document.execCommand('copy');}alert('Lien copié.');});
+    navigator.clipboard.writeText(urlToCopy).then(function(){alert('Lien copié.');}).catch(function(){
+      var inpTmp=document.createElement('textarea');inpTmp.value=urlToCopy;inpTmp.style.position='fixed';inpTmp.style.opacity='0';document.body.appendChild(inpTmp);inpTmp.select();
+      try{document.execCommand('copy');}catch(e){}
+      document.body.removeChild(inpTmp);alert('Lien copié.');
+    });
   } else {
-    var inp=document.getElementById('livreur-access-url');
-    if(inp){inp.select();document.execCommand('copy');}
-    alert('Lien copié.');
+    var inpTmp2=document.createElement('textarea');inpTmp2.value=urlToCopy;inpTmp2.style.position='fixed';inpTmp2.style.opacity='0';document.body.appendChild(inpTmp2);inpTmp2.select();
+    try{document.execCommand('copy');}catch(e){}
+    document.body.removeChild(inpTmp2);alert('Lien copié.');
   }
   return;
 }
