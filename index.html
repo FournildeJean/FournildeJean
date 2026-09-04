@@ -2075,13 +2075,19 @@ function extractClientNameByPosition(pageData,tourneeTitleToSkip){
   // complement d'adresse comme "CELLULE" ou un nom de site). Remonter depuis le code postal
   // dans ce cas ferait capter le mauvais element (ex: "CELLULE" au lieu du vrai nom "AGD LE
   // VIADUC" juste au-dessus).
+  var looksLikeStructureNonNom=/^page\s*\d+\s*\/\s*\d+$|^n[°o]\s*tva|^qt[eé]?\b|^quantit[eé]|^d[eé]signation|^code$|^le\s*:/i;
   if(!aUneEtiquetteAdresseLivraison){
     // Verification volontairement plus legere que estComposantAdresse ici : le mot-cle
     // "residence"/"villa"/"parc"... (utile pour reperer une VRAIE ligne d'adresse plus bas dans
     // le cadre) donnerait de faux positifs sur de vrais noms d'etablissement tres courants dans
     // ce secteur (ex: "EMEIS RESIDENCE L'AMBENE"). En premiere ligne du cadre, seuls un debut de
     // numero de rue, un code postal ou une ligne telephone signalent vraiment une adresse.
-    if(candidats.length&&!debutNumero.test(candidats[0].text)&&!codePostal.test(candidats[0].text)&&!telMob.test(candidats[0].text)&&!etiquette.test(candidats[0].text)){
+    // Garde-fou supplementaire : quand le cadre client est en realite une IMAGE (aucun texte
+    // reel dedans), le "premier candidat restant" peut etre un texte structurel de la page
+    // ("Page 1 / 1", "N° TVA client :", l'entete du tableau...) qui n'est jamais un nom — on le
+    // rejette explicitement pour laisser le repli OCR faire son travail, au lieu d'accepter
+    // n'importe quel texte trouve par defaut.
+    if(candidats.length&&!/^\d{5}\s/.test(candidats[0].text)&&!telMob.test(candidats[0].text)&&!etiquette.test(candidats[0].text)&&!looksLikeStructureNonNom.test(candidats[0].text)){
       return candidats[0].text;
     }
     return''; // rien d'exploitable -> repli OCR
@@ -3075,10 +3081,12 @@ function renderGroupedDeliveryRows(items){
     var tousMemeStatut=g.items.every(function(d){return d.status===premierStatut;});
     var meta=tousMemeStatut?STATUS_META[premierStatut]:null;
     var statutAffiche=meta?'<span class="spill '+meta.sp+'" style="font-size:11px;">'+esc(meta.label)+'</span>':'<span class="spill" style="font-size:11px;">'+nbEnAttente+' en attente</span>';
+    var livreursDistincts=Array.from(new Set(g.items.map(function(d){return d.livreur;}).filter(Boolean)));
+    var livreursHtml=livreursDistincts.map(function(n){return'<div class="row-driver">👤 '+esc(n)+'</div>';}).join('');
     var contenuGroupe='<div class="row-indicator '+(meta?meta.ind:'ind-pending')+'"></div><div class="row-body">'+
       '<div class="row-client-line">📦 '+esc(g.client)+' <span style="color:var(--ink-3);font-weight:400;">('+g.items.length+' BL)</span></div>'+
       '<div class="row-top">'+statutAffiche+'</div>'+
-      '<div class="row-address">'+esc(g.address)+'</div></div>';
+      '<div class="row-address">'+esc(g.address)+'</div>'+livreursHtml+'</div>';
     if(state.selMode){
       var tousSelectionnes=g.items.every(function(d){return state.selected[d.id];});
       return '<div class="delivery-row-wrap"><input type="checkbox" class="row-check" '+(tousSelectionnes?'checked':'')+' data-action="toggle-select-groupe" data-id="'+groupeId+'"/><button class="delivery-row" data-action="toggle-select-groupe" data-id="'+groupeId+'">'+contenuGroupe+'</button></div>';
@@ -3096,6 +3104,10 @@ function renderGroupeDetailModal(){
   var html='<div class="modal-overlay" data-action="close-groupe-detail"><div class="modal-sheet" data-action="noop">';
   html+='<div class="modal-head"><h2 class="modal-title">📦 '+esc(premier.client)+'</h2><button class="modal-close" data-action="close-groupe-detail">←</button></div>';
   html+='<div class="info-row"><span>📍</span><div>'+esc(premier.address)+'<br><a class="maps-link" href="'+mapsUrl(premier.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';
+  var livreursDistinctsGroupe=Array.from(new Set(items.map(function(d){return d.livreur;}).filter(Boolean)));
+  if(livreursDistinctsGroupe.length){
+    html+='<div class="info-row"><span>👤</span><div>'+livreursDistinctsGroupe.map(function(n){return esc(n);}).join(', ')+'</div></div>';
+  }
   html+='<div class="field-label" style="margin-top:10px;">'+items.length+' BL à cette adresse</div>';
   html+='<div style="border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin:4px 0 14px;">'+items.map(function(d,idx){
     var meta=STATUS_META[d.status];
