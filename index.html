@@ -2065,13 +2065,31 @@ function extractClientNameByPosition(pageData,tourneeTitleToSkip){
   function estComposantAdresse(texte){
     return debutNumero.test(texte)||codePostal.test(texte)||telMob.test(texte)||motsAdresse.test(texte);
   }
-  // Strategie principale, robuste face a n'importe quel libelle inconnu place avant le nom
-  // (ex: "Adresse de livraison :") : on s'ancre sur le code postal, tres fiable et toujours
-  // present juste apres l'adresse, puis on remonte : d'abord on saute les lignes d'adresse,
-  // puis on collecte toutes les lignes de nom consecutives (ni adresse, ni etiquette), en
-  // s'arretant des qu'on rencontre une etiquette, un entete deja exclu, ou le haut du cadre.
+  var etiquetteAdresseLivraison=/^adresse\s+(de\s+)?livraison\s*:?\s*$/i;
+  var aUneEtiquetteAdresseLivraison=candidats.some(function(l){return etiquetteAdresseLivraison.test(l.text);});
   var idxCP=-1;
   for(var k=0;k<candidats.length;k++){if(codePostal.test(candidats[k].text)){idxCP=k;break;}}
+  // Cas 1 : PAS d'etiquette "Adresse de livraison" du tout dans le cadre (modele de BL tres
+  // courant) : la toute premiere ligne du cadre est TOUJOURS le nom du client, generalement
+  // ecrit en gras — quelle que soit la ligne suivante (meme si elle ressemble, a tort, a un
+  // complement d'adresse comme "CELLULE" ou un nom de site). Remonter depuis le code postal
+  // dans ce cas ferait capter le mauvais element (ex: "CELLULE" au lieu du vrai nom "AGD LE
+  // VIADUC" juste au-dessus).
+  if(!aUneEtiquetteAdresseLivraison){
+    // Verification volontairement plus legere que estComposantAdresse ici : le mot-cle
+    // "residence"/"villa"/"parc"... (utile pour reperer une VRAIE ligne d'adresse plus bas dans
+    // le cadre) donnerait de faux positifs sur de vrais noms d'etablissement tres courants dans
+    // ce secteur (ex: "EMEIS RESIDENCE L'AMBENE"). En premiere ligne du cadre, seuls un debut de
+    // numero de rue, un code postal ou une ligne telephone signalent vraiment une adresse.
+    if(candidats.length&&!debutNumero.test(candidats[0].text)&&!codePostal.test(candidats[0].text)&&!telMob.test(candidats[0].text)&&!etiquette.test(candidats[0].text)){
+      return candidats[0].text;
+    }
+    return''; // rien d'exploitable -> repli OCR
+  }
+  // Cas 2 : une etiquette "Adresse de livraison" est presente. Strategie ancree sur le code
+  // postal (tres fiable, toujours juste apres l'adresse) : on remonte, on saute les lignes
+  // d'adresse, puis on collecte les lignes de nom consecutives, en s'arretant a la premiere
+  // etiquette ou au haut du cadre.
   if(idxCP>0){
     var i=idxCP-1;
     while(i>=0&&estComposantAdresse(candidats[i].text))i--;
@@ -3081,7 +3099,9 @@ function renderGroupeDetailModal(){
   html+='<div class="field-label" style="margin-top:10px;">'+items.length+' BL à cette adresse</div>';
   html+='<div style="border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin:4px 0 14px;">'+items.map(function(d,idx){
     var meta=STATUS_META[d.status];
-    return '<div data-action="open-detail-from-groupe" data-id="'+d.id+'" style="display:flex;justify-content:space-between;align-items:center;padding:9px 10px;cursor:pointer;'+(idx>0?'border-top:1px solid var(--rule);':'')+'"><span style="font-size:12.5px;">'+esc(d.blNum||d.ref||('BL '+(idx+1)))+'</span><span style="font-size:11px;font-weight:700;color:'+meta.fg+';">'+esc(meta.label).toUpperCase()+'</span></div>';
+    var pdfIconG=d.blPdf?'<span class="row-pdf-btn" data-action="download-bl" data-id="'+d.id+'" title="Ouvrir le BL">📄</span>':'';
+    var consigneIconG=d.instructions?'<span class="row-pdf-btn" data-action="show-consigne" data-id="'+d.id+'" title="'+esc(d.instructions)+'">📌</span>':'';
+    return '<div data-action="open-detail-from-groupe" data-id="'+d.id+'" style="display:flex;justify-content:space-between;align-items:center;padding:9px 10px;cursor:pointer;'+(idx>0?'border-top:1px solid var(--rule);':'')+'"><span style="font-size:12.5px;display:flex;align-items:center;gap:6px;">'+esc(d.blNum||d.ref||('BL '+(idx+1)))+pdfIconG+consigneIconG+'</span><span style="font-size:11px;font-weight:700;color:'+meta.fg+';">'+esc(meta.label).toUpperCase()+'</span></div>';
   }).join('')+'</div>';
   if(state.role==='livreur'&&nbEnAttente>0){
     html+='<button class="btn-outline" style="width:100%;margin-bottom:14px;background:var(--teal-l);border-color:var(--teal);color:var(--teal-d);font-weight:700;" data-action="marquer-groupe-livre" data-id="'+groupeId+'">📍 Tous les BL livrés ('+nbEnAttente+')</button>';
@@ -3706,7 +3726,7 @@ function renderContenantsSection(d){
   html+='</div>';
   return html;
 }
-function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';html+='<div class="divider"></div>';
+function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;padding:8px;font-size:12.5px;" data-action="download-bl" data-id="'+d.id+'">📄 Voir le PDF de ce BL</button>';html+='<div class="divider"></div>';
   var livePhotos=getDeliveryPhotos(d);
   if(livePhotos.length)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">🖼️ Photo constat ('+livePhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+livePhotos.map(function(p,pi){
     return '<div class="photo-thumb"><a href="'+p.src+'" target="_blank"><img src="'+p.src+'" style="width:64px;height:64px;border-radius:6px;object-fit:cover;border:1px solid var(--rule);display:block;"/></a>'+
