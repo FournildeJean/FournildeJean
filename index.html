@@ -2285,12 +2285,18 @@ function extraireConsigneDunePage(items,frontiere,quantiteADroite,xLimiteExterne
   var dernierIdxProduit=-1;
   for(var i=0;i<lignes.length;i++){if(lignes[i].estProduit)dernierIdxProduit=i;}
   if(dernierIdxProduit===-1)return''; // aucun produit trouve sur cette page : pas de tableau identifiable ici
+  // Regle : une ligne SANS quantite en face est une consigne, peu importe sa position dans le
+  // tableau — avant, entre ou apres les produits (ex: "REF: FOI-EAM" glisse entre deux lignes de
+  // produit). On parcourt donc TOUTES les lignes du haut du cadre vers le bas, en ignorant
+  // simplement celles qui sont des produits. On ne s'arrete que sur un grand saut vertical
+  // (sortie du cadre, ex: bloc des totaux bien plus bas) ou un repere de pied de page bancaire.
   var consignes=[];
-  var yPrecedent=lignes[dernierIdxProduit].y;
-  for(var j=dernierIdxProduit+1;j<lignes.length;j++){
+  var yPrecedent=null;
+  for(var j=0;j<lignes.length;j++){
     var lj=lignes[j];
-    if(yPrecedent-lj.y>40)break; // grand saut vertical -> sortie du cadre du tableau, on s'arrete net
+    if(yPrecedent!==null&&(yPrecedent-lj.y)>100)break; // grand saut vertical -> sortie du cadre du tableau, on s'arrete net
     yPrecedent=lj.y;
+    if(lj.estProduit)continue; // c'est un produit, pas une consigne
     if(tourneeTitleToSkip&&lj.texteDesignation===tourneeTitleToSkip)continue;
     if(looksLikeFooterBancaire.test(lj.texteDesignation))break;
     if(lj.texteDesignation.length<4)continue;
