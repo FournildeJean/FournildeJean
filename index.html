@@ -2119,6 +2119,11 @@ var motsAdresseProduits=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|
 var debutNumeroRue=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
 var codePostalVille=/^\d{4,5}\s/;
 var looksLikeFooterZone=/\biban\b|\bbic\b|relev[eé]\s*d.identit[eé]|\brib\b|\bsiret\b|\bsiren\b|\btva\b|capital\s*social|\bsnc\b|\bsarl\b|\bsas\b|\beurl\b|\bsci\b|soci[eé]t[eé]/i;
+// Version restreinte, utilisee UNIQUEMENT pour reperer un pied de page bancaire dans les
+// consignes : les formes juridiques (SNC/SARL/SAS/EURL/SCI) sont volontairement exclues ici,
+// car "SAS" est aussi un mot tres courant dans les consignes de livraison ("deposer dans le
+// SAS d'entree") — les y inclure ferait couper la consigne a tort des qu'elle mentionne un sas.
+var looksLikeFooterBancaire=/\biban\b|\bbic\b|relev[eé]\s*d.identit[eé]|\brib\b|\bsiret\b|\bsiren\b|capital\s*social/i;
 var looksLikeTotal=/^(sous[- ]?)?total\b/i;
 var contientUneLettre=/[a-zA-ZÀ-ÿ]/;
 function ressembleAUneAdresse(texte){
@@ -2140,7 +2145,7 @@ function estUnNomDeProduitPlausible(texte){
 // la colonne Quantite et l'ordonnee de l'entete (si cette page a son propre entete "Designation"/
 // "Quantite" ; sinon yEntete=null et toute la page est consideree comme etant sous le tableau,
 // cas typique d'une page de continuation d'un BL sur plusieurs pages qui ne repete pas l'entete).
-function extraireProduitsDunePage(items,frontiere,quantiteADroite,yEntete){
+function extraireProduitsDunePage(items,frontiere,quantiteADroite,xLimiteExterne,yEntete){
   var itemsUtiles=(yEntete===null)?items:items.filter(function(it){return it.y<yEntete-2;});
   var lignes=[];
   itemsUtiles.forEach(function(it){
@@ -2155,16 +2160,21 @@ function extraireProduitsDunePage(items,frontiere,quantiteADroite,yEntete){
   var produits=[];
   // Regle structurelle, independante de toute largeur/position absolue ET de l'ordre des
   // colonnes (Quantite peut etre a droite OU a gauche de Designation selon le BL) : la
-  // frontiere est le milieu entre les deux entetes detectees sur CETTE page. Une ligne n'est
-  // retenue QUE si tout ce qui s'y trouve, du cote Quantite, forme UN SEUL nombre et rien
-  // d'autre (pas un texte contenant des chiffres, ex: "TVA : FR 59 421 380" ou un numero de
-  // telephone) : c'est cette purete qui protege contre tout texte hors tableau, quelle que soit
-  // sa position exacte sur la page. Le nom du produit est alors lu en face, du cote Designation,
-  // sur cette meme ligne.
+  // frontiere est le milieu entre les deux entetes detectees sur CETTE page. Cote Designation,
+  // aucune limite externe (le texte peut demarrer bien avant l'entete, ex: colonne "Code" vide) :
+  // on prend tout ce qui se trouve de ce cote. Cote Quantite en revanche, on borne aussi le cote
+  // externe avec la colonne suivante REELLEMENT trouvee sur la ligne d'entete (P.U. HT, Montant,
+  // TVA...) : sans cette seconde borne, la quantite se retrouverait fusionnee avec le prix et le
+  // taux de TVA d'a cote des qu'un tableau a plus de 3 colonnes, et la case ne serait plus jamais
+  // un nombre pur. Une ligne n'est retenue QUE si tout ce qui s'y trouve, cote Quantite, forme UN
+  // SEUL nombre et rien d'autre (protege aussi contre un texte hors tableau, ex: "TVA : FR 59 421
+  // 380" ou un numero de telephone, quelle que soit sa position exacte sur la page).
   for(var li=0;li<lignes.length;li++){
     var ligne=lignes[li];
     if(looksLikeFooterZone.test(ligne.texteComplet))break; // sortie du cadre tableau (fin de page) : on s'arrete pour CETTE page
-    var itemsQuantite=ligne.items.filter(function(it){return quantiteADroite?(it.x>=frontiere):(it.x<=frontiere);});
+    var itemsQuantite=ligne.items.filter(function(it){
+      return quantiteADroite?(it.x>=frontiere&&it.x<xLimiteExterne):(it.x<=frontiere&&it.x>xLimiteExterne);
+    });
     if(!itemsQuantite.length)continue; // rien du cote Quantite sur cette ligne -> on ignore
     var texteQuantiteBrut=itemsQuantite.map(function(it){return it.str;}).join('').replace(/\s+/g,'').trim();
     if(!/^\d{1,6}$/.test(texteQuantiteBrut))continue; // la case Quantite doit contenir UNIQUEMENT un nombre, rien d'autre -> sinon on ignore
@@ -2185,27 +2195,94 @@ function extraireProduitsDunePage(items,frontiere,quantiteADroite,yEntete){
 // variante : Article/Produit/Libelle, Qte/Qty...) ; pour une page de continuation qui ne le
 // repete pas, on reutilise la position detectee sur la derniere page qui l'avait (meme
 // document, memes colonnes), et on traite alors toute la page comme etant sous le tableau.
-function extractProductsByPosition(pages){
-  if(!pages||!pages.length)return null;
-  var frontiereCourante=null,quantiteADroiteCourant=null;
-  var produits=[];
-  for(var pi=0;pi<pages.length;pi++){
-    var page=pages[pi];
-    if(!page||!page.items||!page.items.length)continue;
+// Detecte, page par page, les colonnes du tableau (position de Designation/Quantite, et la
+// colonne suivante reelle pour borner Quantite). Partage la meme detection entre l'extraction
+// des produits ET celle des consignes, pour qu'elles restent parfaitement coherentes entre
+// elles (memes bornes, meme notion de "sous le tableau").
+function detecterColonnesTableauParPage(pages){
+  var frontiereCourante=null,quantiteADroiteCourant=null,xLimiteExterneCourante=Infinity,yEnteteCourant=null;
+  return (pages||[]).map(function(page){
+    if(!page||!page.items||!page.items.length)return null;
     var items=page.items.filter(function(it){return it.str&&it.str.trim();});
     var enteteDesignation=items.find(function(it){return /^(d[eé]signations?|articles?|produits?|libell[eé]s?)$/i.test(it.str.trim());});
     var enteteQuantite=items.find(function(it){return /^(quantit[eé]s?|qt[eé]s?|qtys?)$/i.test(it.str.trim());});
-    var yEntete=null;
     if(enteteDesignation&&enteteQuantite){
       frontiereCourante=(enteteDesignation.x+enteteQuantite.x)/2;
       quantiteADroiteCourant=enteteQuantite.x>enteteDesignation.x;
-      yEntete=enteteDesignation.y;
+      yEnteteCourant=enteteDesignation.y;
+      // Colonne suivante reelle sur la ligne d'entete, du cote externe de Quantite (ex: "P.U.
+      // HT" juste apres "Qte") : sert a borner la quantite sans fusionner avec les colonnes
+      // de prix/montant/TVA qui suivent souvent sur ce type de tableau.
+      var entetesLigne=items.filter(function(it){return Math.abs(it.y-enteteDesignation.y)<3;}).sort(function(a,b){return a.x-b.x;});
+      var idxQte=entetesLigne.indexOf(enteteQuantite);
+      if(quantiteADroiteCourant){
+        xLimiteExterneCourante=(idxQte>=0&&idxQte+1<entetesLigne.length)?entetesLigne[idxQte+1].x-5:Infinity;
+      } else {
+        xLimiteExterneCourante=(idxQte>0)?entetesLigne[idxQte-1].x+5:-Infinity;
+      }
     } else if(frontiereCourante===null){
-      continue; // pas encore trouve d'entete sur aucune page precedente -> impossible de situer les colonnes sur cette page
+      return null; // pas encore trouve d'entete sur aucune page precedente -> impossible de situer les colonnes sur cette page
     }
-    produits=produits.concat(extraireProduitsDunePage(items,frontiereCourante,quantiteADroiteCourant,yEntete));
-  }
+    return{items:items,frontiere:frontiereCourante,quantiteADroite:quantiteADroiteCourant,xLimiteExterne:xLimiteExterneCourante,yEntete:yEnteteCourant};
+  });
+}
+function extractProductsByPosition(pages){
+  if(!pages||!pages.length)return null;
+  var produits=[];
+  detecterColonnesTableauParPage(pages).forEach(function(c){
+    if(!c)return;
+    produits=produits.concat(extraireProduitsDunePage(c.items,c.frontiere,c.quantiteADroite,c.xLimiteExterne,c.yEntete));
+  });
   return produits.length?produits:null;
+}
+// Consigne (instructions de livraison) : la ligne (ou les lignes) de texte situees dans la
+// colonne Designation, juste APRES le dernier vrai produit, sans quantite en face. On s'arrete
+// des qu'un grand saut vertical apparait (signe qu'on a quitte le cadre du tableau pour entrer
+// dans le bloc des totaux/TVA/Net a payer, souvent bien plus bas sur la page) — c'est ce qui
+// manquait avant et qui laissait les consignes "deborder" jusqu'a des mentions HT/TVA/Remise.
+function extraireConsigneDunePage(items,frontiere,quantiteADroite,xLimiteExterne,yEntete,tourneeTitleToSkip){
+  var itemsUtiles=(yEntete===null)?items:items.filter(function(it){return it.y<yEntete-2;});
+  var lignes=[];
+  itemsUtiles.forEach(function(it){
+    var ligne=lignes.filter(function(l){return Math.abs(l.y-it.y)<3;})[0];
+    if(!ligne){ligne={y:it.y,items:[]};lignes.push(ligne);}
+    ligne.items.push(it);
+  });
+  lignes.sort(function(a,b){return b.y-a.y;}); // haut de page en premier
+  lignes.forEach(function(ligne){
+    var itemsQte=ligne.items.filter(function(it){
+      return quantiteADroite?(it.x>=frontiere&&it.x<xLimiteExterne):(it.x<=frontiere&&it.x>xLimiteExterne);
+    });
+    var texteQte=itemsQte.map(function(it){return it.str;}).join('').replace(/\s+/g,'').trim();
+    ligne.estProduit=/^\d{1,6}$/.test(texteQte)&&parseInt(texteQte,10)>0;
+    var itemsDesig=ligne.items.filter(function(it){return quantiteADroite?(it.x<frontiere):(it.x>frontiere);}).sort(function(a,b){return a.x-b.x;});
+    ligne.texteDesignation=itemsDesig.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();
+  });
+  var dernierIdxProduit=-1;
+  for(var i=0;i<lignes.length;i++){if(lignes[i].estProduit)dernierIdxProduit=i;}
+  if(dernierIdxProduit===-1)return''; // aucun produit trouve sur cette page : pas de tableau identifiable ici
+  var consignes=[];
+  var yPrecedent=lignes[dernierIdxProduit].y;
+  for(var j=dernierIdxProduit+1;j<lignes.length;j++){
+    var lj=lignes[j];
+    if(yPrecedent-lj.y>40)break; // grand saut vertical -> sortie du cadre du tableau, on s'arrete net
+    yPrecedent=lj.y;
+    if(tourneeTitleToSkip&&lj.texteDesignation===tourneeTitleToSkip)continue;
+    if(looksLikeFooterBancaire.test(lj.texteDesignation))break;
+    if(lj.texteDesignation.length<4)continue;
+    consignes.push(lj.texteDesignation);
+  }
+  return consignes.join(' ');
+}
+function extractConsigneByPosition(pages,tourneeTitleToSkip){
+  if(!pages||!pages.length)return'';
+  var toutes=[];
+  detecterColonnesTableauParPage(pages).forEach(function(c){
+    if(!c)return;
+    var r=extraireConsigneDunePage(c.items,c.frontiere,c.quantiteADroite,c.xLimiteExterne,c.yEntete,tourneeTitleToSkip);
+    if(r)toutes.push(r);
+  });
+  return toutes.join(' ');
 }
 function extractProducts(text,tourneeTitleToSkip){
   var lines=text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
@@ -2327,7 +2404,7 @@ function importBlPdfsBulk(fileList){
             var clientNameNorm=clientName.trim().toLowerCase();
             products=products.filter(function(p){return p.name.trim().toLowerCase()!==clientNameNorm;});
           }
-          var consigne=extractConsigne(text,tourneeInfo.tourneeTitle);
+          var consigne=extractConsigneByPosition(res.pages,tourneeInfo.tourneeTitle)||extractConsigne(text,tourneeInfo.tourneeTitle);
           var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
           if(existing){
             var proceed=confirm('Le BL n°'+blNum+' existe deja pour cette date ("'+existing.client+'").\n\nOK = importer quand meme (creer un doublon)\nAnnuler = garder seulement celui qui existe');
