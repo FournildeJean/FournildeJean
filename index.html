@@ -1974,7 +1974,7 @@ function calculerZoneAdresseLivraison(pageData){
     l.items.push(it);
   });
   lignes.forEach(function(l){l.text=l.items.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();});
-  var headerStrict=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl)/i;
+  var headerStrict=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl|bl\s*n[°o])/i;
   var lignesEntete=lignes.filter(function(l){return headerStrict.test(l.text);});
   var yBasEntete=lignesEntete.length?Math.min.apply(null,lignesEntete.map(function(l){return l.y;})):(pageData.pageHeight*0.9);
   return{seuil:seuil,yBasEntete:yBasEntete};
@@ -1984,7 +1984,7 @@ function calculerZoneAdresseLivraison(pageData){
 // voirie, code postal, telephone) ou a une ligne purement numerique.
 function extraireNomClientDepuisTexteOcr(texteOcr){
   var lignes=(texteOcr||'').split('\n').map(function(l){return l.trim();}).filter(Boolean);
-  lignes=lignes.filter(function(l){return!/^adresse\s+(de\s+)?livraison\s*:?\s*$/i.test(l);});
+  lignes=lignes.filter(function(l){return!/^adresse\s+(de\s+)?livraison\s*:?\s*$/i.test(l)&&!/^(tourn[eé]e|bon de livraison|bl\s*n|n[°o]\s*bl)/i.test(l);});
   var motsAdresse=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc)\b/i;
   var debutNumero=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
   var codePostal=/^\d{4,5}\s/;
@@ -2054,7 +2054,7 @@ function extractClientNameByPosition(pageData,tourneeTitleToSkip){
   lines=lines.filter(function(l){return l.text.length>1;});
   // On exclut uniquement les entetes structurels (Tournee / BON DE LIVRAISON / N BL), toujours
   // situes AU-DESSUS du cadre client, jamais dedans.
-  var headerStrict=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl)/i;
+  var headerStrict=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl|bl\s*n[°o])/i;
   var candidats=lines.filter(function(l){return !headerStrict.test(l.text)&&(!tourneeTitleToSkip||l.text!==tourneeTitleToSkip);});
   if(!candidats.length)return'';
   var motsAdresse=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc|zone industrielle|zone d.activit[eé]|zone artisanale|z\.?i\.?|z\.?a\.?c?\.?|r\.?n\.?|r\.?d\.?|c\.?d\.?)\b/i;
@@ -2082,15 +2082,12 @@ function extractClientNameByPosition(pageData,tourneeTitleToSkip){
     }
     if(nomLignes.length)return nomLignes.join(' ');
   }
-  // Repli (pas de code postal detecte, cas rare) : on reprend l'ancienne logique en avant,
-  // en sautant d'abord une eventuelle etiquette isolee (ex: "Adresse de livraison :").
-  var candidatsSansEtiquette=candidats.filter(function(l){return !etiquette.test(l.text);});
-  if(!candidatsSansEtiquette.length)return'';
-  var morceaux=[candidatsSansEtiquette[0].text];
-  if(candidatsSansEtiquette.length>1&&!estComposantAdresse(candidatsSansEtiquette[1].text)){
-    morceaux.push(candidatsSansEtiquette[1].text);
-  }
-  return morceaux.join(' ');
+  // Aucun code postal reel trouve dans la zone client : signal fort que le cadre "Adresse de
+  // livraison" est probablement une IMAGE (confirme sur plusieurs BL reels), pas du texte.
+  // Deviner a partir d'un texte quelconque restant sur la page (ex: le numero de BL, qui trainait
+  // encore a droite) serait fantaisiste et dangereux : on retourne vide, pour laisser le repli
+  // OCR (bien plus fiable, il lit la vraie image) prendre le relais dans le flux d'import.
+  return'';
 }
 function extractPdfPageText(arrayBuffer){
   return pdfjsLib.getDocument({data:new Uint8Array(arrayBuffer)}).promise.then(function(pdf){
