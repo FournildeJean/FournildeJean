@@ -17,6 +17,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script type="module">
 // ── FIREBASE CONFIG ──
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -1923,12 +1924,13 @@ function readPdf(file){if(!window.pdfjsLib){state.pdfParsing=false;state.errorMs
 function extractPdfPageTextAndItems(arrayBuffer){
   return pdfjsLib.getDocument({data:new Uint8Array(arrayBuffer)}).promise.then(function(pdf){
     var pageNums=[];for(var p=1;p<=pdf.numPages;p++)pageNums.push(p);
-    var firstPageWidth=612,firstPageItems=[],firstPageStyles={};
+    var firstPageWidth=612,firstPageHeight=792,firstPageItems=[],firstPageStyles={},firstPageObj=null;
     var toutesLesPages=[]; // une entree par page : {pageWidth, items} — sert a l'extraction produit multi-pages
     return Promise.all(pageNums.map(function(p){
       return pdf.getPage(p).then(function(pg){
         var pageWidth=(pg.view&&pg.view.length===4&&pg.view[2])?pg.view[2]:612;
-        if(p===1)firstPageWidth=pageWidth;
+        var pageHeight=(pg.view&&pg.view.length===4&&pg.view[3])?pg.view[3]:792;
+        if(p===1){firstPageWidth=pageWidth;firstPageHeight=pageHeight;firstPageObj=pg;}
         return pg.getTextContent().then(function(c){
           var items=c.items.map(function(it){
             var tf=it.transform;
@@ -1940,7 +1942,7 @@ function extractPdfPageTextAndItems(arrayBuffer){
         });
       });
     })).then(function(texts){
-      return{text:texts.join('\n'),pageData:{pageWidth:firstPageWidth,items:firstPageItems,styles:firstPageStyles},pages:toutesLesPages};
+      return{text:texts.join('\n'),pageData:{pageWidth:firstPageWidth,pageHeight:firstPageHeight,items:firstPageItems,styles:firstPageStyles},pages:toutesLesPages,firstPageObj:firstPageObj};
     });
   });
 }
@@ -1950,6 +1952,80 @@ function estGras(fontName,styles){
   if(!style)return false;
   var signature=(style.fontFamily||'')+' '+fontName;
   return /bold|gras|black|heavy/i.test(signature);
+}
+// --- Repli OCR : quand le cadre "Adresse de livraison" est une IMAGE dans le PDF (pas du texte
+// reel), aucune methode de lecture de texte ne peut y trouver le nom du client. On "photographie"
+// alors cette zone precise de la page et on la fait lire par un moteur de reconnaissance de
+// caracteres (OCR), avant de se rabattre en dernier recours sur l'ancienne methode par texte brut.
+
+// Calcule la zone (au-dessus de laquelle se trouve l'entete Tournee/BL, en dessous de laquelle
+// se trouve le cadre client) a partir du VRAI texte de la page (fiable, quelle que soit la mise
+// en page), meme quand le cadre client lui-meme n'a aucun texte reel a l'interieur.
+function calculerZoneAdresseLivraison(pageData){
+  if(!pageData||!pageData.items||!pageData.items.length)return null;
+  var items=pageData.items.filter(function(it){return it.str&&it.str.trim();});
+  var seuil=pageData.pageWidth*0.42;
+  var itemsDroite=items.filter(function(it){return it.x>seuil;});
+  if(!itemsDroite.length)return null;
+  var lignes=[];
+  itemsDroite.forEach(function(it){
+    var l=lignes.filter(function(l){return Math.abs(l.y-it.y)<3;})[0];
+    if(!l){l={y:it.y,items:[]};lignes.push(l);}
+    l.items.push(it);
+  });
+  lignes.forEach(function(l){l.text=l.items.map(function(it){return it.str;}).join(' ').replace(/\s+/g,' ').trim();});
+  var headerStrict=/^(tourn[eé]e|bon de livraison|n[°o]\s*bl)/i;
+  var lignesEntete=lignes.filter(function(l){return headerStrict.test(l.text);});
+  var yBasEntete=lignesEntete.length?Math.min.apply(null,lignesEntete.map(function(l){return l.y;})):(pageData.pageHeight*0.9);
+  return{seuil:seuil,yBasEntete:yBasEntete};
+}
+// A partir du texte brut lu par l'OCR sur la zone isolee : le nom du client est tout ce qui
+// precede la premiere ligne qui ressemble a un composant d'adresse (numero de rue, mot de
+// voirie, code postal, telephone) ou a une ligne purement numerique.
+function extraireNomClientDepuisTexteOcr(texteOcr){
+  var lignes=(texteOcr||'').split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  lignes=lignes.filter(function(l){return!/^adresse\s+(de\s+)?livraison\s*:?\s*$/i.test(l);});
+  var motsAdresse=/\b(rue|avenue|boulevard|impasse|all[eé]e|route|chemin|place|cours|quai|square|villa|passage|sentier|rond[- ]point|lieu[- ]dit|lotissement|r[eé]sidence|parc)\b/i;
+  var debutNumero=/^\d+\s*,?\s*(bis|ter)?\s+\S/i;
+  var codePostal=/^\d{4,5}\s/;
+  var telMob=/^(tel|mob|t[eé]l)\s*:?/i;
+  var estTel=/^[\d\s.\-\/]+$/;
+  function estComposant(t){return debutNumero.test(t)||codePostal.test(t)||telMob.test(t)||motsAdresse.test(t)||estTel.test(t);}
+  var nom=[];
+  for(var i=0;i<lignes.length;i++){
+    if(estComposant(lignes[i]))break;
+    nom.push(lignes[i]);
+  }
+  return nom.join(' ').trim();
+}
+// Rend la page en image (haute resolution), decoupe la zone du cadre client, et la fait lire
+// par Tesseract.js. Retourne une chaine vide (sans planter) en cas d'echec a n'importe quelle
+// etape, pour que l'import se poursuive normalement avec le repli texte brut habituel.
+function ocrNomClientSiBesoin(pageObj,pageData){
+  if(!pageObj||typeof Tesseract==='undefined')return Promise.resolve('');
+  var zone=calculerZoneAdresseLivraison(pageData);
+  if(!zone)return Promise.resolve('');
+  var scale=2.5;
+  var viewport=pageObj.getViewport({scale:scale});
+  var canvas=document.createElement('canvas');
+  canvas.width=viewport.width;canvas.height=viewport.height;
+  var ctx=canvas.getContext('2d');
+  return pageObj.render({canvasContext:ctx,viewport:viewport}).promise.then(function(){
+    var pageHeightPt=pageData.pageHeight||(viewport.height/scale);
+    var topY_pdf=zone.yBasEntete-5;
+    var botY_pdf=Math.max(0,zone.yBasEntete-200); // marge genereuse : mieux vaut trop de blanc que couper le texte
+    var canvasTop=Math.max(0,(pageHeightPt-topY_pdf)*scale);
+    var canvasBottom=Math.min(canvas.height,(pageHeightPt-botY_pdf)*scale);
+    var canvasLeft=Math.max(0,zone.seuil*scale);
+    var w=canvas.width-canvasLeft,h=canvasBottom-canvasTop;
+    if(w<=0||h<=0)return'';
+    var cropCanvas=document.createElement('canvas');
+    cropCanvas.width=w;cropCanvas.height=h;
+    cropCanvas.getContext('2d').drawImage(canvas,canvasLeft,canvasTop,w,h,0,0,w,h);
+    return Tesseract.recognize(cropCanvas,'fra').then(function(res){
+      return extraireNomClientDepuisTexteOcr(res&&res.data?res.data.text:'');
+    }).catch(function(e){console.error('OCR du nom client impossible :',e);return'';});
+  }).catch(function(e){console.error('Rendu de la page PDF pour OCR impossible :',e);return'';});
 }
 function extractClientNameByPosition(pageData,tourneeTitleToSkip){
   if(!pageData||!pageData.items||!pageData.items.length)return'';
@@ -2240,36 +2316,43 @@ function importBlPdfsBulk(fileList){
         var texteAbsent=!text||!text.replace(/\s+/g,'').length; // aucun texte extractible -> probablement un PDF scanne/image, pas du texte reel
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
-        var clientName=extractClientNameByPosition(res.pageData,tourneeInfo.tourneeTitle)||extractClientName(text);
-        var products=extractProductsByPosition(res.pages)||extractProducts(text,tourneeInfo.tourneeTitle);
-        // Un "produit" ne peut jamais etre exactement le nom du client (ex: "CNC Hotel") : si
-        // c'est le cas, c'est que le nom du client s'est glisse par erreur dans le tableau.
-        if(products&&clientName){
-          var clientNameNorm=clientName.trim().toLowerCase();
-          products=products.filter(function(p){return p.name.trim().toLowerCase()!==clientNameNorm;});
-        }
-        var consigne=extractConsigne(text,tourneeInfo.tourneeTitle);
-        var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
-        if(existing){
-          var proceed=confirm('Le BL n°'+blNum+' existe deja pour cette date ("'+existing.client+'").\n\nOK = importer quand meme (creer un doublon)\nAnnuler = garder seulement celui qui existe');
-          if(!proceed){results.duplicates++;processNext(i+1);return;}
-        }
-        // Si une autre livraison de la MEME tournee existe deja aujourd'hui, on rejoint le groupe :
-        // meme livreur (deja assigne ou non), meme titre de tournee.
-        var tourneeMate=tourneeInfo.tourneeNum?state.deliveries.find(function(d){return d.tourneeNum===tourneeInfo.tourneeNum;}):null;
-        var refParts=[];
-        if(blNum)refParts.push('N° '+blNum);
-        products.forEach(function(p){refParts.push(p.name+' x'+p.qty);});
-        var entry={id:genId(),client:(texteAbsent?'⚠️ A verifier (PDF illisible) ':'')+(clientName||(blNum?'BL n°'+blNum:'BL sans numero')),address:'',time:'',ref:refParts.join(', '),instructions:consigne,status:'pending',deliveredAt:null,
-          livreur:tourneeMate?tourneeMate.livreur:'',livreurPhone:tourneeMate?tourneeMate.livreurPhone:'',
-          note:'',blNum:blNum||'',blPdf:originalPdfBase64,
-          tourneeNum:tourneeInfo.tourneeNum||'',tourneeTitle:tourneeMate?tourneeMate.tourneeTitle:(tourneeInfo.tourneeTitle||''),
-          createdAt:new Date().toISOString()};
-        persist(state.deliveries.concat([entry]));
-        syncDeliveryAttachments(entry.id);
-        results.created++;
-        if(texteAbsent)results.sansTexte++;
-        processNext(i+1);
+        var nomPositionnel=extractClientNameByPosition(res.pageData,tourneeInfo.tourneeTitle);
+        // Si le cadre "Adresse de livraison" ne contient aucun texte reel (cas d'un cadre-image,
+        // frequent sur certains modeles de BL), on tente l'OCR sur cette zone precise avant de se
+        // rabattre sur l'ancienne methode par texte brut, moins fiable.
+        var promesseNom=nomPositionnel?Promise.resolve(nomPositionnel):ocrNomClientSiBesoin(res.firstPageObj,res.pageData);
+        promesseNom.then(function(clientName){
+          if(!clientName)clientName=extractClientName(text);
+          var products=extractProductsByPosition(res.pages)||extractProducts(text,tourneeInfo.tourneeTitle);
+          // Un "produit" ne peut jamais etre exactement le nom du client (ex: "CNC Hotel") : si
+          // c'est le cas, c'est que le nom du client s'est glisse par erreur dans le tableau.
+          if(products&&clientName){
+            var clientNameNorm=clientName.trim().toLowerCase();
+            products=products.filter(function(p){return p.name.trim().toLowerCase()!==clientNameNorm;});
+          }
+          var consigne=extractConsigne(text,tourneeInfo.tourneeTitle);
+          var existing=blNum?state.deliveries.find(function(d){return d.blNum===blNum;}):null;
+          if(existing){
+            var proceed=confirm('Le BL n°'+blNum+' existe deja pour cette date ("'+existing.client+'").\n\nOK = importer quand meme (creer un doublon)\nAnnuler = garder seulement celui qui existe');
+            if(!proceed){results.duplicates++;processNext(i+1);return;}
+          }
+          // Si une autre livraison de la MEME tournee existe deja aujourd'hui, on rejoint le groupe :
+          // meme livreur (deja assigne ou non), meme titre de tournee.
+          var tourneeMate=tourneeInfo.tourneeNum?state.deliveries.find(function(d){return d.tourneeNum===tourneeInfo.tourneeNum;}):null;
+          var refParts=[];
+          if(blNum)refParts.push('N° '+blNum);
+          products.forEach(function(p){refParts.push(p.name+' x'+p.qty);});
+          var entry={id:genId(),client:(texteAbsent?'⚠️ A verifier (PDF illisible) ':'')+(clientName||(blNum?'BL n°'+blNum:'BL sans numero')),address:'',time:'',ref:refParts.join(', '),instructions:consigne,status:'pending',deliveredAt:null,
+            livreur:tourneeMate?tourneeMate.livreur:'',livreurPhone:tourneeMate?tourneeMate.livreurPhone:'',
+            note:'',blNum:blNum||'',blPdf:originalPdfBase64,
+            tourneeNum:tourneeInfo.tourneeNum||'',tourneeTitle:tourneeMate?tourneeMate.tourneeTitle:(tourneeInfo.tourneeTitle||''),
+            createdAt:new Date().toISOString()};
+          persist(state.deliveries.concat([entry]));
+          syncDeliveryAttachments(entry.id);
+          results.created++;
+          if(texteAbsent)results.sansTexte++;
+          processNext(i+1);
+        });
       }).catch(function(){
         results.skipped++;
         processNext(i+1);
