@@ -811,7 +811,7 @@ function deviceLivreurAutorise(){
   // Autorise si ce code correspond a un lien encore actif (ni revoque, ni inexistant). Un lien
   // revoque par le responsable retire donc bien l'acces a cette seule personne, meme si elle
   // avait deja ete autorisee auparavant.
-  return(state.livreurLiens||[]).some(function(l){return l.token===codeAppareil&&!l.revoked;});
+  return(state.livreurLiens||[]).some(function(l){return l.token===codeAppareil;});
 }
 function initFbLivreurAccess(){
   if(!window.fbReady){setTimeout(initFbLivreurAccess,500);return;}
@@ -823,7 +823,7 @@ function initFbLivreurAccess(){
     if(window._pendingLivreurAccessCode){
       var code=window._pendingLivreurAccessCode;
       var entree=liens.find(function(l){return l.token===code;});
-      if(entree&&!entree.revoked){
+      if(entree){
         try{localStorage.setItem('fdj-device-livreur-ok',code);}catch(e){}
         if(state.screen==='choose')state.screen='livreur-name';
       }
@@ -837,14 +837,14 @@ initFbLivreurAccess();
 geocoderFournilSiBesoin();
 function genererLienLivreurPourPersonne(nom){
   var token=(Date.now().toString(36)+Math.random().toString(36).slice(2,10)).toUpperCase();
-  var nouveauLien={token:token,nom:nom,createdAt:new Date().toISOString(),revoked:false,verif:'en-cours'};
+  var nouveauLien={token:token,nom:nom,createdAt:new Date().toISOString(),verif:'en-cours'};
   // Affichage optimiste immediat : le lien apparait tout de suite dans la liste, complet et
   // utilisable, sans attendre la confirmation d'enregistrement.
   state.livreurLiens=(state.livreurLiens||[]).concat([nouveauLien]);
   render();
   function doSave(){
     if(window.fbReady){
-      var listeAEnregistrer=state.livreurLiens.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt,revoked:l.revoked};}); // jamais le champ verif, purement local
+      var listeAEnregistrer=state.livreurLiens.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt};}); // jamais le champ verif, purement local
       window.fbSave('fdj-access','liens-livreurs',{liens:listeAEnregistrer}).then(function(){
         return window.fbModules.getDoc(window.fbModules.doc(window.fbDb,'fdj-access','liens-livreurs'));
       }).then(function(snap){
@@ -865,15 +865,9 @@ function genererLienLivreurPourPersonne(nom){
   doSave();
 }
 function revoquerLienLivreur(token){
-  var nouvelleListe=(state.livreurLiens||[]).map(function(l){return l.token===token?Object.assign({},l,{revoked:true}):l;});
+  var nouvelleListe=(state.livreurLiens||[]).filter(function(l){return l.token!==token;});
   state.livreurLiens=nouvelleListe;
-  window.fbSave('fdj-access','liens-livreurs',{liens:nouvelleListe.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt,revoked:l.revoked};})});
-  render();
-}
-function reactiverLienLivreur(token){
-  var nouvelleListe=(state.livreurLiens||[]).map(function(l){return l.token===token?Object.assign({},l,{revoked:false}):l;});
-  state.livreurLiens=nouvelleListe;
-  window.fbSave('fdj-access','liens-livreurs',{liens:nouvelleListe.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt,revoked:l.revoked};})});
+  window.fbSave('fdj-access','liens-livreurs',{liens:nouvelleListe.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt};})});
   render();
 }
 function lienLivreurAccessUrl(token){
@@ -3410,7 +3404,7 @@ function renderLivreurApp(){
     html+='</div>';
   }
   html+='</div>';
-  html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderCamionConfirmModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupePointageModal();
+  html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderCamionConfirmModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupePointageModal()+renderPhotoLightbox();
   return html;
 }
 
@@ -3696,27 +3690,19 @@ function renderLivreurAccessSection(){
       var verifHtml='';
       if(l.verif==='en-cours')verifHtml='<div style="font-size:10.5px;color:var(--ink-3);margin-bottom:4px;">⏳ Vérification en ligne…</div>';
       else if(l.verif==='echec')verifHtml='<div style="font-size:10.5px;color:var(--red);font-weight:700;margin-bottom:4px;">⚠️ Échec de vérification — ce lien risque de ne pas fonctionner.</div>';
-      var estRevoque=!!l.revoked;
-      var couleurCadre=estRevoque?'var(--rule)':'var(--teal)';
-      var fondCadre=estRevoque?'var(--paper-2)':'var(--teal-l)';
-      return '<div style="border:1px solid '+couleurCadre+';background:'+fondCadre+';border-radius:8px;padding:8px 10px;margin-bottom:8px;">'+
+      return '<div style="border:1px solid var(--teal);background:var(--teal-l);border-radius:8px;padding:8px 10px;margin-bottom:8px;">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
-          '<span style="font-weight:700;font-size:12.5px;'+(estRevoque?'color:var(--ink-3);text-decoration:line-through;':'color:var(--teal-d);')+'">'+esc(l.nom||'(sans nom)')+'</span>'+
-          (estRevoque?'<span style="font-size:10.5px;color:var(--ink-3);">🚫 Révoqué</span>':'')+
+          '<span style="font-weight:700;font-size:12.5px;color:var(--teal-d);">'+esc(l.nom||'(sans nom)')+'</span>'+
         '</div>'+
         verifHtml+
-        (estRevoque?
-          '<button class="btn-outline" style="width:100%;padding:6px;font-size:11.5px;" data-action="reactiver-lien-livreur" data-token="'+esc(l.token)+'">↩️ Réactiver</button>'
-          :
-          '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">'+
-            '<input type="text" readonly value="'+esc(url)+'" style="flex:1;min-width:0;border:none;background:transparent;font-size:11px;color:var(--teal-d);font-family:var(--mono);"/>'+
-            '<button class="btn-outline" style="padding:5px 8px;font-size:11px;white-space:nowrap;background:#fff;" data-action="copy-livreur-access" data-token="'+esc(l.token)+'">Copier</button>'+
-          '</div>'+
-          '<div style="display:flex;gap:6px;">'+
-            '<button class="btn-outline" style="flex:1;padding:6px;font-size:11.5px;background:var(--teal);border-color:var(--teal);color:#fff;font-weight:700;" data-action="share-livreur-access" data-token="'+esc(l.token)+'">📤 Partager</button>'+
-            '<button class="btn-outline" style="padding:6px 10px;font-size:11.5px;color:var(--red);border-color:var(--red);background:#fff;" data-action="revoke-livreur-access" data-token="'+esc(l.token)+'">🗑 Révoquer</button>'+
-          '</div>'
-        )+
+        '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">'+
+          '<input type="text" readonly value="'+esc(url)+'" style="flex:1;min-width:0;border:none;background:transparent;font-size:11px;color:var(--teal-d);font-family:var(--mono);"/>'+
+          '<button class="btn-outline" style="padding:5px 8px;font-size:11px;white-space:nowrap;background:#fff;" data-action="copy-livreur-access" data-token="'+esc(l.token)+'">Copier</button>'+
+        '</div>'+
+        '<div style="display:flex;gap:6px;">'+
+          '<button class="btn-outline" style="flex:1;padding:6px;font-size:11.5px;background:var(--teal);border-color:var(--teal);color:#fff;font-weight:700;" data-action="share-livreur-access" data-token="'+esc(l.token)+'">📤 Partager</button>'+
+          '<button class="btn-outline" style="padding:6px 10px;font-size:11.5px;color:var(--red);border-color:var(--red);background:#fff;" data-action="revoke-livreur-access" data-token="'+esc(l.token)+'">🗑 Révoquer</button>'+
+        '</div>'+
       '</div>';
     }).join('');
   }
@@ -3850,11 +3836,19 @@ function renderContenantsSection(d){
   html+='</div>';
   return html;
 }
+function renderPhotoLightbox(){
+  if(!state.showPhotoLightbox)return'';
+  return '<div class="modal-overlay" data-action="close-photo-lightbox" style="background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:0;">'+
+    '<img src="'+esc(state.showPhotoLightbox)+'" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:4px;" data-action="close-photo-lightbox"/>'+
+    '<button data-action="close-photo-lightbox" style="position:fixed;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:18px;cursor:pointer;">✕</button>'+
+  '</div>';
+}
 function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;padding:8px;font-size:12.5px;" data-action="download-bl" data-id="'+d.id+'">📄 Voir le PDF de ce BL</button>';html+='<div class="divider"></div>';
   var livePhotos=getDeliveryPhotos(d);
   if(livePhotos.length)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">🖼️ Photo constat ('+livePhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+livePhotos.map(function(p,pi){
-    return '<div class="photo-thumb"><a href="'+p.src+'" target="_blank"><img src="'+p.src+'" style="width:64px;height:64px;border-radius:6px;object-fit:cover;border:1px solid var(--rule);display:block;"/></a>'+
-      '<button class="photo-del" data-action="delete-photo" data-id="'+d.id+'" data-photo-idx="'+pi+'" title="Supprimer cette photo">✕</button></div>';
+    var croixSuppression=state.role==='livreur'?'<button class="photo-del" data-action="delete-photo" data-id="'+d.id+'" data-photo-idx="'+pi+'" title="Supprimer cette photo">✕</button>':'';
+    return '<div class="photo-thumb"><img src="'+p.src+'" data-action="agrandir-photo" data-photo-src="'+esc(p.src)+'" style="width:64px;height:64px;border-radius:6px;object-fit:cover;border:1px solid var(--rule);display:block;cursor:pointer;"/>'+
+      croixSuppression+'</div>';
   }).join('')+'</div></div>';
   if(!isPointed){
     if(state.role==='responsable'){
@@ -3905,16 +3899,30 @@ function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliverie
 var ADRESSE_FOURNIL='37 Rue Pierre Boulanger, 63100 Clermont-Ferrand';
 function getFournilGeo(){
   var cached=idbGet('fdj-fournil-geo');
-  return(cached&&typeof cached.lat==='number'&&typeof cached.lng==='number')?cached:null;
+  if(!cached||typeof cached.lat!=='number'||typeof cached.lng!=='number')return null;
+  if(!coordonneesPlausiblesFrance(cached.lat,cached.lng))return null; // valeur en cache aberrante -> on force un nouveau geocodage
+  return cached;
+}
+// Verifie que des coordonnees tombent bien dans une zone raisonnable pour la France
+// (metropolitaine + Corse), avec une marge confortable. Sert de garde-fou : un geocodage mal
+// interprete (adresse ambigue, fragments meles) peut renvoyer un resultat n'importe ou dans le
+// monde ; mieux vaut ne pas afficher de position du tout que d'en afficher une clairement fausse.
+function coordonneesPlausiblesFrance(lat,lng){
+  return lat>=41&&lat<=51.5&&lng>=-5.5&&lng<=9.7;
 }
 function geocoderFournilSiBesoin(){
   if(getFournilGeo())return;
-  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(ADRESSE_FOURNIL))
+  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q='+encodeURIComponent(ADRESSE_FOURNIL))
     .then(function(r){return r.json();})
     .then(function(data){
       if(data&&data[0]){
-        idbSet('fdj-fournil-geo',{lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)});
-        render();
+        var lat=parseFloat(data[0].lat),lng=parseFloat(data[0].lon);
+        if(coordonneesPlausiblesFrance(lat,lng)){
+          idbSet('fdj-fournil-geo',{lat:lat,lng:lng});
+          render();
+        } else {
+          console.error('Geocodage du fournil rejete (hors de France) :',lat,lng);
+        }
       }
     })
     .catch(function(e){console.error('Geocodage de l\'adresse du fournil impossible :',e);});
@@ -3922,16 +3930,25 @@ function geocoderFournilSiBesoin(){
 // Geocodage d'une adresse client, utilise en repli sur la carte "Trajet reel" quand la vraie
 // position GPS n'a pas ete captee au moment du pointage (livraisons pointees avant l'ajout de
 // cette fonctionnalite, ou echec ponctuel du GPS). Mis en cache par adresse pour n'interroger le
-// service qu'une seule fois par adresse, jamais a chaque ouverture de la carte.
+// service qu'une seule fois par adresse, jamais a chaque ouverture de la carte. Restreint a la
+// France (countrycodes=fr) et verifie que le resultat tombe bien dans une zone plausible : une
+// adresse mal extraite ou ambigue peut sinon renvoyer une position n'importe ou dans le monde
+// (deja observe : un geocodage errone a place un client en Afrique de l'Est).
 function geocoderAdresseSiBesoin(adresse){
   if(!adresse)return Promise.resolve(null);
   var cache=idbGet('fdj-geo-adresse:'+adresse);
-  if(cache&&typeof cache.lat==='number')return Promise.resolve(cache);
-  return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(adresse))
+  if(cache&&typeof cache.lat==='number')return Promise.resolve(cache.plausible===false?null:cache);
+  return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q='+encodeURIComponent(adresse))
     .then(function(r){return r.json();})
     .then(function(data){
       if(data&&data[0]){
-        var geo={lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)};
+        var lat=parseFloat(data[0].lat),lng=parseFloat(data[0].lon);
+        if(!coordonneesPlausiblesFrance(lat,lng)){
+          console.error('Geocodage adresse client rejete (hors de France) :',adresse,lat,lng);
+          idbSet('fdj-geo-adresse:'+adresse,{plausible:false}); // evite de re-interroger a chaque fois pour un resultat deja identifie comme aberrant
+          return null;
+        }
+        var geo={lat:lat,lng:lng};
         idbSet('fdj-geo-adresse:'+adresse,geo);
         return geo;
       }
@@ -4134,7 +4151,7 @@ function renderResponsableApp(){
   html+='<button class="btn-outline" style="width:calc(100% - 32px);margin:12px 16px;background:var(--amber-l,#FEF4E6);border-color:var(--amber);color:var(--amber-d,#8A5A10);font-weight:700;" data-action="export-commande-globale">📦 Générer la commande globale (Excel)</button>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoLightbox();
   return html;
 }
 function renderChoose(){
@@ -4526,11 +4543,6 @@ if(action==='revoke-livreur-access'){
   if(tokenRevoke&&confirm('Révoquer ce lien ? Cette personne perdra son accès immédiatement.')){revoquerLienLivreur(tokenRevoke);}
   return;
 }
-if(action==='reactiver-lien-livreur'){
-  var tokenReactive=el.getAttribute('data-token');
-  if(tokenReactive)reactiverLienLivreur(tokenReactive);
-  return;
-}
 if(action==='share-livreur-access'){partagerLienLivreurAccess(el.getAttribute('data-token'));return;}
 if(action==='copy-livreur-access'){
   var urlToCopy=lienLivreurAccessUrl(el.getAttribute('data-token'));
@@ -4842,6 +4854,8 @@ else if(action==='decr-contenant'){
 else if(action==='toggle-modifier'){state.showModifier=!state.showModifier;render();}
 else if(action==='start-voice'){startVoice();}
 else if(action==='take-photo'){document.getElementById('cam-input').click();}
+else if(action==='agrandir-photo'){state.showPhotoLightbox=el.getAttribute('data-photo-src');render();}
+else if(action==='close-photo-lightbox'){state.showPhotoLightbox=null;render();}
 else if(action==='delete-photo'){
   var photoIdx=parseInt(el.getAttribute('data-photo-idx'),10);
   if(!isNaN(photoIdx)&&confirm('Supprimer cette photo ?')){deleteDeliveryPhoto(id,photoIdx);}
