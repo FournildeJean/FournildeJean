@@ -1133,9 +1133,17 @@ function initTrajetMap(){
     if(state.showTrajet!==camIdCourant)return;
     var mapElActuel=document.getElementById('trajet-map');
     if(!mapElActuel)return;
+    var avertEl=document.getElementById('trajet-map-avertissement');
     if(!points.length){
       mapElActuel.innerHTML='<div style="padding:16px;font-size:12px;color:var(--ink-2);text-align:center;">🗺️ Aucune position exploitable pour ce camion (ni position GPS, ni adresse géolocalisable).</div>';
       return;
+    }
+    // Certains arrets peuvent avoir ete ecartes (ni GPS, ni adresse geolocalisable) : on le dit
+    // clairement au lieu de laisser une carte incomplete sans explication.
+    if(avertEl){
+      var clientsPositionnes=points.map(function(p){return p.d.id;});
+      var arretsManquants=items.filter(function(d){return clientsPositionnes.indexOf(d.id)===-1;});
+      avertEl.innerHTML=arretsManquants.length?('<div style="font-size:11px;color:var(--amber-d,#8A5A10);background:var(--amber-l,#FEF4E6);border-radius:8px;padding:8px 10px;margin-bottom:12px;">⚠️ Position introuvable pour : '+arretsManquants.map(function(d){return esc(d.client);}).join(', ')+' (non affiché·s sur la carte).</div>'):'';
     }
     if(trajetMapInstance){try{trajetMapInstance.remove();}catch(e){}trajetMapInstance=null;}
     try{
@@ -1151,15 +1159,27 @@ function initTrajetMap(){
         L.marker([fournilGeo.lat,fournilGeo.lng],{icon:L.divIcon({html:'🏠',className:'',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(trajetMapInstance)
           .bindPopup('<b>🏠 Fournil</b><br>'+ADRESSE_FOURNIL);
       }
+      // Marqueurs numerotes, visibles directement sur la carte (pas seulement dans la bulle au
+      // clic) : reprend le meme ordre et le meme style que la liste "Ordre reel des arrets".
       points.forEach(function(p,i){
         var heure=new Date(p.d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
         var mention=p.approx?'<br><i style="color:#888;">(position approximative, d\'après l\'adresse)</i>':'';
-        L.marker([p.lat,p.lng]).addTo(trajetMapInstance)
+        L.marker([p.lat,p.lng],{icon:iconeArretNumerote(i+1)}).addTo(trajetMapInstance)
           .bindPopup('<b>'+(i+1)+'. '+p.d.client.replace(/</g,'&lt;')+'</b><br>'+heure+mention);
       });
-      // Trace unique et classique (comme un itineraire Google Maps), pas de decoupage par couleur.
-      L.polyline(latlngs,{color:'#0A6878',weight:3,opacity:0.8}).addTo(trajetMapInstance);
       trajetMapInstance.fitBounds(latlngs,{padding:[30,30]});
+      // Trace initial en ligne droite, affiche immediatement (pas d'attente) ; remplace ensuite
+      // par un vrai itineraire suivant les routes des que le calcul aboutit.
+      var traceLigneDroite=L.polyline(latlngs,{color:'#0A6878',weight:3,opacity:0.6,dashArray:'6,6'}).addTo(trajetMapInstance);
+      calculerItineraireRoutier(latlngs).then(function(routeCoords){
+        if(state.showTrajet!==camIdCourant)return; // carte fermee ou changee entre-temps
+        if(routeCoords&&routeCoords.length){
+          traceLigneDroite.remove();
+          L.polyline(routeCoords,{color:'#0A6878',weight:4,opacity:0.85}).addTo(trajetMapInstance);
+        }
+        // Si le calcul echoue, la ligne droite en pointilles reste affichee — un itineraire
+        // approximatif vaut mieux que pas de trace du tout.
+      });
       // Correctif classique Leaflet-dans-une-modale : au moment de la creation, le conteneur peut
       // ne pas encore avoir sa taille finale (animation d'ouverture de la fenetre, mise en page pas
       // totalement terminee) — Leaflet se retrouve alors avec des dimensions figees a 0 et affiche
@@ -1174,6 +1194,29 @@ function initTrajetMap(){
       console.error('Erreur affichage carte trajet :',e);
       mapElActuel.innerHTML='<div style="padding:16px;font-size:12px;color:var(--red);text-align:center;">⚠️ La carte n\'a pas pu s\'afficher ('+esc(e.message||'erreur inconnue')+').</div>';
     }
+  });
+}
+// Calcule un itineraire routier reel (suit les routes, comme le ferait Maps) entre les points
+// donnes, dans l'ordre. Utilise OSRM (service public gratuit de calcul d'itineraire). En cas
+// d'echec (service indisponible, pas de route trouvee...), on retombe sur la ligne droite deja
+// utilisee auparavant plutot que de ne rien afficher.
+function calculerItineraireRoutier(latlngs){
+  if(latlngs.length<2)return Promise.resolve(null);
+  var coordsStr=latlngs.map(function(p){return p[1]+','+p[0];}).join(';'); // OSRM attend lng,lat
+  return fetch('https://router.project-osrm.org/route/v1/driving/'+coordsStr+'?overview=full&geometries=geojson')
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(data&&data.code==='Ok'&&data.routes&&data.routes[0]&&data.routes[0].geometry&&data.routes[0].geometry.coordinates){
+        return data.routes[0].geometry.coordinates.map(function(c){return[c[1],c[0]];}); // reconverti en [lat,lng]
+      }
+      return null;
+    })
+    .catch(function(e){console.error('Calcul d\'itineraire routier impossible (repli sur ligne droite) :',e);return null;});
+}
+function iconeArretNumerote(n){
+  return L.divIcon({
+    html:'<div style="background:#0A6878;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);">'+n+'</div>',
+    className:'',iconSize:[26,26],iconAnchor:[13,13]
   });
 }
 function initQrFeatures(){
@@ -3937,24 +3980,33 @@ function geocoderFournilSiBesoin(){
 function geocoderAdresseSiBesoin(adresse){
   if(!adresse)return Promise.resolve(null);
   var cache=idbGet('fdj-geo-adresse:'+adresse);
-  if(cache&&typeof cache.lat==='number')return Promise.resolve(cache.plausible===false?null:cache);
-  return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q='+encodeURIComponent(adresse))
-    .then(function(r){return r.json();})
-    .then(function(data){
-      if(data&&data[0]){
-        var lat=parseFloat(data[0].lat),lng=parseFloat(data[0].lon);
-        if(!coordonneesPlausiblesFrance(lat,lng)){
-          console.error('Geocodage adresse client rejete (hors de France) :',adresse,lat,lng);
-          idbSet('fdj-geo-adresse:'+adresse,{plausible:false}); // evite de re-interroger a chaque fois pour un resultat deja identifie comme aberrant
-          return null;
+  if(cache){
+    if(cache.plausible===false)return Promise.resolve(null); // deja identifie comme non geolocalisable, on ne reinterroge pas
+    if(typeof cache.lat==='number')return Promise.resolve(cache);
+  }
+  function tenter(requete){
+    return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q='+encodeURIComponent(requete))
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(data&&data[0]){
+          var lat=parseFloat(data[0].lat),lng=parseFloat(data[0].lon);
+          if(coordonneesPlausiblesFrance(lat,lng))return{lat:lat,lng:lng};
         }
-        var geo={lat:lat,lng:lng};
-        idbSet('fdj-geo-adresse:'+adresse,geo);
-        return geo;
-      }
-      return null;
-    })
-    .catch(function(e){console.error('Geocodage adresse client impossible :',adresse,e);return null;});
+        return null;
+      });
+  }
+  return tenter(adresse).then(function(geo){
+    if(geo)return geo;
+    // Repli : une adresse complete (avec sous-localisation, code de site...) peut faire echouer
+    // la recherche la ou juste "code postal + ville" reussirait presque toujours — moins
+    // precis, mais bien mieux qu'aucune position du tout sur la carte.
+    var m=adresse.match(/(\d{5}\s+[^,]+)\s*$/);
+    if(m&&m[1].trim().toLowerCase()!==adresse.trim().toLowerCase())return tenter(m[1].trim());
+    return null;
+  }).then(function(geoFinal){
+    idbSet('fdj-geo-adresse:'+adresse,geoFinal||{plausible:false});
+    return geoFinal;
+  }).catch(function(e){console.error('Geocodage adresse client impossible :',adresse,e);return null;});
 }
 // Resout la position exploitable de chaque livraison pour la carte : la vraie position GPS si
 // elle a ete captee au pointage (le plus fiable), sinon la position geocodee de l'adresse (moins
@@ -4049,7 +4101,8 @@ function renderTrajetModal(){
   if(res.dureeTotaleMin!=null){
     html+='<div style="background:var(--teal-l);border:1px solid var(--teal);border-radius:8px;padding:10px 12px;margin-bottom:14px;text-align:center;"><span style="font-size:11px;color:var(--teal-d);text-transform:uppercase;letter-spacing:.05em;">Durée totale de la tournée</span><div style="font-size:20px;font-weight:800;color:var(--teal-d);">'+formatDureeMin(res.dureeTotaleMin)+'</div></div>';
   }
-  html+='<div id="trajet-map" style="width:100%;height:280px;border-radius:10px;margin-bottom:16px;background:var(--paper-2);"></div>';
+  html+='<div id="trajet-map" style="width:100%;height:280px;border-radius:10px;margin-bottom:8px;background:var(--paper-2);"></div>';
+  html+='<div id="trajet-map-avertissement"></div>';
   html+='<div class="section-lbl">Ordre réel des arrêts</div>';
   if(cam.heurePrise){
     html+='<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule);">'+
