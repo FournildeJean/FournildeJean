@@ -784,7 +784,7 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var state={screen:'choose',role:null,loginError:'',livreurLiens:[],livreurLoginError:'',livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
+var state={screen:'choose',role:null,loginError:'',livreurLiens:[],livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(toLocalISODate(new Date())),caissesVisibles:loadCaissesVisibles(toLocalISODate(new Date())),date:toLocalISODate(new Date()),deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;runCleanupIfDue();}
@@ -825,7 +825,7 @@ function initFbLivreurAccess(){
       var entree=liens.find(function(l){return l.token===code;});
       if(entree&&!entree.revoked){
         try{localStorage.setItem('fdj-device-livreur-ok',code);}catch(e){}
-        if(state.screen==='choose'||state.screen==='livreur-password')state.screen='livreur-name';
+        if(state.screen==='choose')state.screen='livreur-name';
       }
       window._pendingLivreurAccessCode=null;
     }
@@ -1126,45 +1126,61 @@ function initTrajetMap(){
     mapEl.innerHTML='<div style="padding:16px;font-size:12px;color:var(--red);text-align:center;">⚠️ La librairie de carte (Leaflet) n\'a pas pu se charger — vérifiez votre connexion internet et rechargez la page.</div>';
     return;
   }
-  var res=getTrajetItemsForCamion(state.showTrajet);
+  var camIdCourant=state.showTrajet;
+  var res=getTrajetItemsForCamion(camIdCourant);
   var items=res.items,fournilGeo=res.fournilGeo;
   if(!items.length)return; // deja gere par un message dans renderTrajetModal, rien a faire ici
-  if(trajetMapInstance){try{trajetMapInstance.remove();}catch(e){}trajetMapInstance=null;}
-  try{
-    trajetMapInstance=L.map('trajet-map');
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      attribution:'© OpenStreetMap contributors',maxZoom:19
-    }).addTo(trajetMapInstance);
-    var latlngs=[];
-    if(fournilGeo)latlngs.push([fournilGeo.lat,fournilGeo.lng]);
-    items.forEach(function(d){latlngs.push([d.geoLat,d.geoLng]);});
-    if(fournilGeo)latlngs.push([fournilGeo.lat,fournilGeo.lng]);
-    if(fournilGeo){
-      L.marker([fournilGeo.lat,fournilGeo.lng],{icon:L.divIcon({html:'🏠',className:'',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(trajetMapInstance)
-        .bindPopup('<b>🏠 Fournil</b><br>'+ADRESSE_FOURNIL);
+  mapEl.innerHTML='<div style="padding:16px;font-size:12px;color:var(--ink-3);text-align:center;">⏳ Chargement de la carte…</div>';
+  // Position reelle (GPS capte au pointage) en priorite ; adresse geocodee en repli pour les
+  // livraisons pointees avant l'ajout du suivi GPS, ou en cas d'echec ponctuel du GPS.
+  resoudrePositionsTrajet(items).then(function(points){
+    // L'ouverture d'une AUTRE carte pendant le chargement (ou la fermeture de la fenetre) rend
+    // ce resultat perime : on verifie qu'on est toujours sur le meme camion avant de dessiner.
+    if(state.showTrajet!==camIdCourant)return;
+    var mapElActuel=document.getElementById('trajet-map');
+    if(!mapElActuel)return;
+    if(!points.length){
+      mapElActuel.innerHTML='<div style="padding:16px;font-size:12px;color:var(--ink-2);text-align:center;">🗺️ Aucune position exploitable pour ce camion (ni position GPS, ni adresse géolocalisable).</div>';
+      return;
     }
-    items.forEach(function(d,i){
-      var heure=new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-      L.marker([d.geoLat,d.geoLng]).addTo(trajetMapInstance)
-        .bindPopup('<b>'+(i+1)+'. '+d.client.replace(/</g,'&lt;')+'</b><br>'+heure);
-    });
-    // Trace unique et classique (comme un itineraire Google Maps), pas de decoupage par couleur.
-    L.polyline(latlngs,{color:'#0A6878',weight:3,opacity:0.8}).addTo(trajetMapInstance);
-    trajetMapInstance.fitBounds(latlngs,{padding:[30,30]});
-    // Correctif classique Leaflet-dans-une-modale : au moment de la creation, le conteneur peut
-    // ne pas encore avoir sa taille finale (animation d'ouverture de la fenetre, mise en page pas
-    // totalement terminee) — Leaflet se retrouve alors avec des dimensions figees a 0 et affiche
-    // une carte grise/vide meme si tout le reste est correct. On force un recalcul juste apres.
-    setTimeout(function(){
-      if(trajetMapInstance){
-        trajetMapInstance.invalidateSize();
-        trajetMapInstance.fitBounds(latlngs,{padding:[30,30]});
+    if(trajetMapInstance){try{trajetMapInstance.remove();}catch(e){}trajetMapInstance=null;}
+    try{
+      trajetMapInstance=L.map('trajet-map');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+        attribution:'© OpenStreetMap contributors',maxZoom:19
+      }).addTo(trajetMapInstance);
+      var latlngs=[];
+      if(fournilGeo)latlngs.push([fournilGeo.lat,fournilGeo.lng]);
+      points.forEach(function(p){latlngs.push([p.lat,p.lng]);});
+      if(fournilGeo)latlngs.push([fournilGeo.lat,fournilGeo.lng]);
+      if(fournilGeo){
+        L.marker([fournilGeo.lat,fournilGeo.lng],{icon:L.divIcon({html:'🏠',className:'',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(trajetMapInstance)
+          .bindPopup('<b>🏠 Fournil</b><br>'+ADRESSE_FOURNIL);
       }
-    },250);
-  }catch(e){
-    console.error('Erreur affichage carte trajet :',e);
-    mapEl.innerHTML='<div style="padding:16px;font-size:12px;color:var(--red);text-align:center;">⚠️ La carte n\'a pas pu s\'afficher ('+esc(e.message||'erreur inconnue')+').</div>';
-  }
+      points.forEach(function(p,i){
+        var heure=new Date(p.d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+        var mention=p.approx?'<br><i style="color:#888;">(position approximative, d\'après l\'adresse)</i>':'';
+        L.marker([p.lat,p.lng]).addTo(trajetMapInstance)
+          .bindPopup('<b>'+(i+1)+'. '+p.d.client.replace(/</g,'&lt;')+'</b><br>'+heure+mention);
+      });
+      // Trace unique et classique (comme un itineraire Google Maps), pas de decoupage par couleur.
+      L.polyline(latlngs,{color:'#0A6878',weight:3,opacity:0.8}).addTo(trajetMapInstance);
+      trajetMapInstance.fitBounds(latlngs,{padding:[30,30]});
+      // Correctif classique Leaflet-dans-une-modale : au moment de la creation, le conteneur peut
+      // ne pas encore avoir sa taille finale (animation d'ouverture de la fenetre, mise en page pas
+      // totalement terminee) — Leaflet se retrouve alors avec des dimensions figees a 0 et affiche
+      // une carte grise/vide meme si tout le reste est correct. On force un recalcul juste apres.
+      setTimeout(function(){
+        if(trajetMapInstance){
+          trajetMapInstance.invalidateSize();
+          trajetMapInstance.fitBounds(latlngs,{padding:[30,30]});
+        }
+      },250);
+    }catch(e){
+      console.error('Erreur affichage carte trajet :',e);
+      mapElActuel.innerHTML='<div style="padding:16px;font-size:12px;color:var(--red);text-align:center;">⚠️ La carte n\'a pas pu s\'afficher ('+esc(e.message||'erreur inconnue')+').</div>';
+    }
+  });
 }
 function initQrFeatures(){
   var qrTarget=document.getElementById('qr-render-target');
@@ -3667,7 +3683,13 @@ function renderLivreurAccessSection(){
   var liens=(state.livreurLiens||[]).slice().sort(function(a,b){return(b.createdAt||'').localeCompare(a.createdAt||'');});
   var html='<div class="section-lbl">🔒 Accès livreur sécurisé</div>';
   html+='<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Chaque livreur a son propre lien, permanent : il continue de fonctionner même si son téléphone efface son historique. Tu peux couper l\'accès d\'une seule personne à tout moment ("Révoquer"), sans toucher aux autres.</p>';
-  html+='<div class="add-row" style="margin-bottom:12px;"><input id="nouveau-lien-nom" placeholder="Nom du livreur" type="text"/><button class="btn-add-lv" data-action="creer-lien-livreur">+</button></div>';
+  html+='<div class="add-row" style="margin-bottom:12px;">'+
+    (state.livreurs.length?
+      '<select id="nouveau-lien-select" style="flex:1;">'+state.livreurs.map(function(lv){return'<option value="'+esc(lv.name)+'">'+esc(lv.name)+'</option>';}).join('')+'</select>'
+      :
+      '<div style="flex:1;font-size:11.5px;color:var(--ink-3);">Ajoutez d\'abord un livreur ci-dessous ↓</div>'
+    )+
+    '<button class="btn-add-lv" data-action="creer-lien-livreur"'+(state.livreurs.length?'':' disabled')+'>+</button></div>';
   if(liens.length){
     html+=liens.map(function(l){
       var url=lienLivreurAccessUrl(l.token);
@@ -3897,12 +3919,47 @@ function geocoderFournilSiBesoin(){
     })
     .catch(function(e){console.error('Geocodage de l\'adresse du fournil impossible :',e);});
 }
+// Geocodage d'une adresse client, utilise en repli sur la carte "Trajet reel" quand la vraie
+// position GPS n'a pas ete captee au moment du pointage (livraisons pointees avant l'ajout de
+// cette fonctionnalite, ou echec ponctuel du GPS). Mis en cache par adresse pour n'interroger le
+// service qu'une seule fois par adresse, jamais a chaque ouverture de la carte.
+function geocoderAdresseSiBesoin(adresse){
+  if(!adresse)return Promise.resolve(null);
+  var cache=idbGet('fdj-geo-adresse:'+adresse);
+  if(cache&&typeof cache.lat==='number')return Promise.resolve(cache);
+  return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(adresse))
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(data&&data[0]){
+        var geo={lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)};
+        idbSet('fdj-geo-adresse:'+adresse,geo);
+        return geo;
+      }
+      return null;
+    })
+    .catch(function(e){console.error('Geocodage adresse client impossible :',adresse,e);return null;});
+}
+// Resout la position exploitable de chaque livraison pour la carte : la vraie position GPS si
+// elle a ete captee au pointage (le plus fiable), sinon la position geocodee de l'adresse (moins
+// precise mais utile pour les livraisons deja pointees avant l'ajout du suivi GPS). Les
+// livraisons sans GPS ET sans adresse exploitable sont ecartees.
+function resoudrePositionsTrajet(items){
+  return Promise.all(items.map(function(d){
+    if(d.geoLat&&d.geoLng)return Promise.resolve({d:d,lat:d.geoLat,lng:d.geoLng,approx:false});
+    if(d.address)return geocoderAdresseSiBesoin(d.address).then(function(geo){
+      return geo?{d:d,lat:geo.lat,lng:geo.lng,approx:true}:null;
+    });
+    return Promise.resolve(null);
+  })).then(function(res){return res.filter(Boolean);});
+}
 function getTrajetItemsForCamion(camId){
   var cam=state.camions.find(function(c){return c.id===camId;});
   if(!cam)return{cam:null,items:[]};
   var livObj=getLivreurById(cam.livreurId);
   var livName=cam.livreurName||(livObj?livObj.name:'');
-  var items=state.deliveries.filter(function(d){return d.livreur===livName&&d.geoLat&&d.geoLng&&d.deliveredAt;});
+  // On garde toute livraison ayant soit une vraie position GPS, soit au moins une adresse
+  // exploitable (utilisee en repli geocode par resoudrePositionsTrajet pour la carte).
+  var items=state.deliveries.filter(function(d){return d.livreur===livName&&d.deliveredAt&&((d.geoLat&&d.geoLng)||d.address);});
   if(cam.heurePrise){
     var startT=new Date(state.date+'T'+cam.heurePrise+':00');
     var endT=cam.heureDepose?new Date(state.date+'T'+cam.heureDepose+':00'):null;
@@ -3964,9 +4021,9 @@ function renderTrajetModal(){
   html+='<div class="modal-head"><h2 class="modal-title">🗺️ '+esc(cam.camion||'Camion')+' — '+esc(liv)+'</h2><button class="modal-close" data-action="close-trajet">←</button></div>';
   html+='<div style="font-size:12px;color:var(--ink-3);margin-bottom:12px;">Trajet réel de ce camion'+(cam.heurePrise?' ('+esc(cam.heurePrise)+(cam.heureDepose?'–'+esc(cam.heureDepose):'')+')':'')+', dans l\'ordre réel de validation</div>';
   if(!items.length){
-    var aDesLivraisonsSansGeo=state.deliveries.some(function(d){return d.livreur===liv&&d.deliveredAt&&(!d.geoLat||!d.geoLng);});
-    var msgVide=aDesLivraisonsSansGeo
-      ?'🗺️ Ce livreur a des livraisons validées, mais sans position GPS enregistrée (autorisation refusée ou signal indisponible au moment du pointage sur son téléphone).'
+    var aDesLivraisonsSansRien=state.deliveries.some(function(d){return d.livreur===liv&&d.deliveredAt&&!d.geoLat&&!d.address;});
+    var msgVide=aDesLivraisonsSansRien
+      ?'🗺️ Ce livreur a des livraisons validées, mais ni position GPS ni adresse enregistrée pour tracer un trajet.'
       :'🗺️ Pas encore de livraison validée pour ce camion.';
     html+='<div style="background:var(--paper-2);border-radius:8px;padding:12px;font-size:12px;color:var(--ink-2);">'+msgVide+'</div>';
     html+='</div></div>';
@@ -4081,15 +4138,10 @@ function renderResponsableApp(){
   return html;
 }
 function renderChoose(){
-  return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns"><button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button><button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';
-}
-function renderLivreurPasswordScreen(){
-  return'<div class="login-form-photo"><div class="login-form-card"><div style="text-align:center;margin-bottom:20px;"><span style="font-size:36px;">🚚</span><h1 class="login-form-title login-form-title-dark">Accès livreur</h1><p class="login-form-sub login-form-sub-dark">Code d\'accès requis</p></div>'+
-    '<div class="field"><div class="field-label">Code d\'accès</div><input id="l-livreur-pwd" type="text" autofocus/></div>'+
-    (state.livreurLoginError?'<p style="color:var(--red);font-size:12.5px;margin:6px 0 0;">'+esc(state.livreurLoginError)+'</p>':'')+
-    '<button class="btn-primary" style="width:100%;margin-top:14px;" data-action="do-livreur-login">Entrer</button>'+
-    '<div style="text-align:center;margin-top:14px;"><button style="background:none;border:none;color:var(--ink-3);font-size:12.5px;text-decoration:underline;cursor:pointer;" data-action="back-to-choose">← Retour</button></div>'+
-  '</div></div>';
+  var btnLivreur=deviceLivreurAutorise()
+    ?'<button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button>'
+    :'<div class="btn-photo" style="opacity:.7;cursor:default;background:rgba(255,255,255,.08);"><div class="btn-photo-icon">🔒</div><div class="btn-photo-text"><span class="btn-photo-label">Accès livreur verrouillé</span><span class="btn-photo-desc">Demandez votre lien d\'accès à votre responsable</span></div></div>';
+  return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns">'+btnLivreur+'<button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';
 }
 function renderLivreurName(){
   var saisieManuelle=state.showLivreurSaisieManuelle||state.livreurs.length===0;
@@ -4121,7 +4173,7 @@ function render(){
   document.querySelectorAll('[data-preserve-scroll]').forEach(function(el){
     if(el.id)scrollMemo[el.id]=el.scrollTop;
   });
-  var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-password')html=renderLivreurPasswordScreen();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-password':'l-livreur-pwd','livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();
+  var html='';if(state.screen==='choose')html=renderChoose();else if(state.screen==='livreur-name')html=renderLivreurName();else if(state.screen==='password')html=renderPassword();else html=state.role==='livreur'?renderLivreurApp():renderResponsableApp();document.getElementById('app').innerHTML=html;var focusMap={'livreur-name':'l-prenom','password':'l-pwd'};var fid=focusMap[state.screen];if(fid)setTimeout(function(){var e=document.getElementById(fid);if(e)e.focus();},50);initQrFeatures();initTrajetMap();
   Object.keys(scrollMemo).forEach(function(id){var el=document.getElementById(id);if(el)el.scrollTop=scrollMemo[id];});
 }
 function renderKeepScroll(){
@@ -4135,20 +4187,7 @@ function renderKeepScroll(){
 document.getElementById('app').addEventListener('click',async function(e){var el=e.target.closest('[data-action]');if(!el)return;var action=el.getAttribute('data-action'),id=el.getAttribute('data-id');if(action==='noop'){e.stopPropagation();return;}
 if(action==='goto-choose'){state.screen='choose';state.loginError='';render();return;}
 if(action==='goto-password'){state.screen='password';state.loginError='';render();return;}
-if(action==='goto-livreur-name'){state.screen=deviceLivreurAutorise()?'livreur-name':'livreur-password';state.livreurLoginError='';render();return;}
-if(action==='back-to-choose'){state.screen='choose';state.livreurLoginError='';render();return;}
-if(action==='do-livreur-login'){
-  var codeSaisi=document.getElementById('l-livreur-pwd').value.trim();
-  var entreeValide=(state.livreurLiens||[]).find(function(l){return l.token===codeSaisi&&!l.revoked;});
-  if(entreeValide){
-    try{localStorage.setItem('fdj-device-livreur-ok',codeSaisi);}catch(e){}
-    state.screen='livreur-name';state.livreurLoginError='';
-  } else {
-    state.livreurLoginError='Code incorrect.';
-  }
-  render();
-  return;
-}
+if(action==='goto-livreur-name'){if(!deviceLivreurAutorise())return;state.screen='livreur-name';state.loginError='';render();return;}
 if(action==='check-livreur-select'){
   var sel=document.getElementById('l-livreur-select').value;
   if(!sel){state.loginError='Choisissez votre nom dans la liste.';render();return;}
@@ -4476,9 +4515,9 @@ if(action==='download-qr-code'){
 }
 if(action==='close-livreurs'){state.showLivreurs=false;render();return;}
 if(action==='creer-lien-livreur'){
-  var nomInput=document.getElementById('nouveau-lien-nom');
-  var nom=nomInput?nomInput.value.trim():'';
-  if(!nom){alert('Merci de saisir le nom du livreur.');return;}
+  var nomSelect=document.getElementById('nouveau-lien-select');
+  var nom=nomSelect?nomSelect.value:'';
+  if(!nom){alert('Ajoutez d\'abord un livreur.');return;}
   genererLienLivreurPourPersonne(nom);
   return;
 }
@@ -4892,7 +4931,7 @@ document.getElementById('app').addEventListener('input',function(e){
 });
 document.getElementById('app').addEventListener('blur',function(e){if(e.target.classList.contains('camion-field')){saveCamionFields();}},true);
 document.getElementById('app').addEventListener('change',function(e){if(e.target.classList.contains('camion-field')){saveCamionFields();}});
-document.getElementById('app').addEventListener('keydown',function(e){if(e.key!=='Enter')return;var btn=null;if(state.screen==='livreur-password')btn=document.querySelector('[data-action="do-livreur-login"]');else if(state.screen==='livreur-name')btn=document.querySelector('[data-action="check-livreur-name"]');else if(state.screen==='password')btn=document.querySelector('[data-action="do-resp-login"]');if(btn)btn.click();});
+document.getElementById('app').addEventListener('keydown',function(e){if(e.key!=='Enter')return;var btn=null;if(state.screen==='livreur-name')btn=document.querySelector('[data-action="check-livreur-name"]');else if(state.screen==='password')btn=document.querySelector('[data-action="do-resp-login"]');if(btn)btn.click();});
 document.getElementById('pdf-input').addEventListener('change',function(e){var files=e.target.files;if(files&&files.length)importBlPdfsBulk(files);e.target.value='';});
 
 window.onFbSaveError=function(collection_name, err){
