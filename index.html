@@ -2832,37 +2832,54 @@ function appliquerPointageGroupe(){
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
 function captureGeoLocationAsync(deliveryIds){
   var ids=Array.isArray(deliveryIds)?deliveryIds:[deliveryIds];
+  // Enregistre le diagnostic DIRECTEMENT sur chaque livraison (champ geoDebug), au lieu d'une
+  // alerte ephemere qui peut ne jamais s'afficher (contexte d'app installee, changement d'ecran
+  // juste apres la validation, navigateur qui differe l'alerte...). Consultable a tout moment en
+  // ouvrant le BL, sans depender d'un timing precis.
+  function enregistrerDiagnostic(msg){
+    console.log('[GEO]',msg);
+    state.deliveries=state.deliveries.map(function(d){
+      if(ids.indexOf(d.id)===-1)return d;
+      return Object.assign({},d,{geoDebug:msg});
+    });
+    persist(state.deliveries);
+    render();
+  }
+  function libelleErreurGeo(err){
+    if(!err)return'Erreur inconnue';
+    var codes={1:'Permission refusee',2:'Position indisponible',3:'Delai depasse (timeout)'};
+    return(codes[err.code]||'Code '+err.code)+(err.message?' — '+err.message:'');
+  }
   // Repli sur l'adresse du BL, tente IMMEDIATEMENT des que le GPS echoue pour une raison
   // quelconque (refus, signal indisponible, navigateur non compatible...) : la livraison se
   // retrouve ainsi avec une position exploitable des sa validation, sans attendre qu'on ouvre un
   // jour la carte "Trajet reel". Necessite tout de meme une connexion reseau (geocodage) ; si
   // elle manque aussi a cet instant precis, on n'insiste pas ici — le meme repli sera retente
   // automatiquement plus tard, a l'ouverture de la carte, des que le reseau sera revenu.
-  function repliAdresseSiPossible(raison){
-    state._geoStatus=raison;
-    render();
+  function repliAdresseSiPossible(detailEchecGps){
     ids.forEach(function(id){
       var d=state.deliveries.find(function(x){return x.id===id;});
-      if(!d||!d.address)return;
+      if(!d){return;}
+      if(!d.address){
+        enregistrerDiagnostic('GPS echoue ('+detailEchecGps+') ET aucune adresse enregistree pour ce BL — aucune position disponible.');
+        return;
+      }
       geocoderAdresseSiBesoin(d.address).then(function(geo){
-        if(!geo)return;
+        if(!geo){
+          enregistrerDiagnostic('GPS echoue ('+detailEchecGps+') ET le repli sur l\'adresse a aussi echoue a cet instant (probablement pas de reseau a ce moment precis) — aucune position enregistree pour l\'instant. Nouvel essai automatique a la prochaine ouverture de la carte.');
+          return;
+        }
         state.deliveries=state.deliveries.map(function(dd){
           if(dd.id!==id||(dd.geoLat&&dd.geoLng))return dd; // ne jamais ecraser une vraie position GPS obtenue entre-temps
           return Object.assign({},dd,{geoLat:geo.lat,geoLng:geo.lng,geoApprox:true});
         });
         persist(state.deliveries);
-        render();
-        // Retour explicite et visible (temporaire, le temps de diagnostiquer) : sans ca, personne
-        // ne sait qu'un repli s'est produit ni pourquoi, tant qu'on ne clique pas sur le marqueur
-        // de la carte des jours plus tard.
-        setTimeout(function(){
-          alert('⚠️ Position GPS non obtenue pour "'+(d.client||'cette livraison')+'" — adresse utilisée à la place.\n\nDétail technique :\n'+(state._geoStatusMsg||raison));
-        },300);
+        enregistrerDiagnostic('GPS echoue ('+detailEchecGps+') — adresse utilisee a la place (position approximative).');
       });
     });
   }
   if(!navigator.geolocation){
-    repliAdresseSiPossible('unsupported');
+    repliAdresseSiPossible('geolocalisation non supportee par ce navigateur');
     return;
   }
   function enregistrerPositionReelle(pos){
@@ -2871,16 +2888,8 @@ function captureGeoLocationAsync(deliveryIds){
       if(ids.indexOf(d.id)===-1)return d;
       return Object.assign({},d,{geoLat:lat,geoLng:lng,geoApprox:false});
     });
-    state._geoStatus='ok';
-    state._geoStatusMsg='Position GPS obtenue (precision : '+Math.round(pos.coords.accuracy||0)+' m).';
-    console.log('[GEO] Position reelle obtenue :',lat,lng,'precision',pos.coords.accuracy);
     persist(state.deliveries);
-    render();
-  }
-  function libelleErreurGeo(err){
-    if(!err)return'Erreur inconnue';
-    var codes={1:'Permission refusee',2:'Position indisponible',3:'Delai depasse (timeout)'};
-    return(codes[err.code]||'Code '+err.code)+' — '+(err.message||'');
+    enregistrerDiagnostic('Position GPS reelle obtenue avec succes (precision : '+Math.round(pos.coords.accuracy||0)+' m).');
   }
   // Strategie a deux niveaux, comme le ferait une vraie app GPS : une premiere tentative en
   // haute precision (le GPS du telephone) peut prendre du temps a l'interieur d'un batiment
@@ -2890,12 +2899,12 @@ function captureGeoLocationAsync(deliveryIds){
   // lecture plus rapide et moins precise (reseau/WiFi), qui fonctionne bien mieux en interieur,
   // avant de se rabattre sur l'adresse en tout dernier recours.
   navigator.geolocation.getCurrentPosition(enregistrerPositionReelle,function(errPrecis){
+    var detailPrecis='Tentative precise : '+libelleErreurGeo(errPrecis);
     console.error('[GEO] Echec tentative precise :',libelleErreurGeo(errPrecis));
-    if(errPrecis&&errPrecis.code===1){state._geoStatusMsg='Tentative precise : '+libelleErreurGeo(errPrecis);repliAdresseSiPossible('denied');return;} // refus explicite : inutile de retenter, ca echouera pareil
+    if(errPrecis&&errPrecis.code===1){repliAdresseSiPossible(detailPrecis+' (refus explicite, pas de nouvelle tentative)');return;}
     navigator.geolocation.getCurrentPosition(enregistrerPositionReelle,function(errRapide){
       console.error('[GEO] Echec tentative rapide :',libelleErreurGeo(errRapide));
-      state._geoStatusMsg='Tentative précise : '+libelleErreurGeo(errPrecis)+' | Tentative rapide : '+libelleErreurGeo(errRapide);
-      repliAdresseSiPossible(errRapide&&errRapide.code===1?'denied':'failed');
+      repliAdresseSiPossible(detailPrecis+' | Tentative rapide : '+libelleErreurGeo(errRapide));
     },{enableHighAccuracy:false,timeout:6000,maximumAge:60000});
   },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
 }
@@ -3933,7 +3942,7 @@ function renderPhotoLightbox(){
     '<button data-action="close-photo-lightbox" style="position:fixed;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:18px;cursor:pointer;">✕</button>'+
   '</div>';
 }
-function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;padding:8px;font-size:12.5px;" data-action="download-bl" data-id="'+d.id+'">📄 Voir le PDF de ce BL</button>';html+='<div class="divider"></div>';
+function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';if(d.geoDebug)html+='<div style="font-size:10.5px;color:var(--ink-3);background:var(--paper-2);border-radius:6px;padding:6px 8px;margin-bottom:10px;">📍 Diagnostic position : '+esc(d.geoDebug)+'</div>';if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;padding:8px;font-size:12.5px;" data-action="download-bl" data-id="'+d.id+'">📄 Voir le PDF de ce BL</button>';html+='<div class="divider"></div>';
   var livePhotos=getDeliveryPhotos(d);
   if(livePhotos.length)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">🖼️ Photo constat ('+livePhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+livePhotos.map(function(p,pi){
     var croixSuppression=state.role==='livreur'?'<button class="photo-del" data-action="delete-photo" data-id="'+d.id+'" data-photo-idx="'+pi+'" title="Supprimer cette photo">✕</button>':'';
