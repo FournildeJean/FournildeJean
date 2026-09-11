@@ -2859,7 +2859,7 @@ function captureGeoLocationAsync(deliveryIds){
     repliAdresseSiPossible('unsupported');
     return;
   }
-  navigator.geolocation.getCurrentPosition(function(pos){
+  function enregistrerPositionReelle(pos){
     var lat=pos.coords.latitude,lng=pos.coords.longitude;
     state.deliveries=state.deliveries.map(function(d){
       if(ids.indexOf(d.id)===-1)return d;
@@ -2868,12 +2868,20 @@ function captureGeoLocationAsync(deliveryIds){
     state._geoStatus='ok';
     persist(state.deliveries);
     render();
-  },function(err){
-    // La position est une donnee complementaire, jamais bloquante pour la validation, mais on
-    // tente aussitot le repli sur l'adresse plutot que de laisser la livraison sans aucune
-    // position exploitable.
-    repliAdresseSiPossible(err&&err.code===1?'denied':'failed');
-  },{enableHighAccuracy:true,timeout:8000,maximumAge:30000});
+  }
+  // Strategie a deux niveaux, comme le ferait une vraie app GPS : une premiere tentative en
+  // haute precision (le GPS du telephone) peut prendre du temps a l'interieur d'un batiment
+  // (signal satellite faible) et depasser le delai avant meme d'avoir eu une chance d'aboutir —
+  // ce qui, avant cette correction, etait traite comme un echec pur et bascule a tort sur
+  // l'adresse alors que le GPS etait parfaitement actif. On tente donc, en repli, une seconde
+  // lecture plus rapide et moins precise (reseau/WiFi), qui fonctionne bien mieux en interieur,
+  // avant de se rabattre sur l'adresse en tout dernier recours.
+  navigator.geolocation.getCurrentPosition(enregistrerPositionReelle,function(errPrecis){
+    if(errPrecis&&errPrecis.code===1){repliAdresseSiPossible('denied');return;} // refus explicite : inutile de retenter, ca echouera pareil
+    navigator.geolocation.getCurrentPosition(enregistrerPositionReelle,function(errRapide){
+      repliAdresseSiPossible(errRapide&&errRapide.code===1?'denied':'failed');
+    },{enableHighAccuracy:false,timeout:6000,maximumAge:60000});
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
 }
 function getDeliveryPhotos(d){
   if(d.photos&&d.photos.length)return d.photos.filter(function(p){return p&&p.src;});
