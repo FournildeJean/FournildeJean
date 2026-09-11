@@ -2831,25 +2831,48 @@ function appliquerPointageGroupe(){
 }
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
 function captureGeoLocationAsync(deliveryIds){
+  var ids=Array.isArray(deliveryIds)?deliveryIds:[deliveryIds];
+  // Repli sur l'adresse du BL, tente IMMEDIATEMENT des que le GPS echoue pour une raison
+  // quelconque (refus, signal indisponible, navigateur non compatible...) : la livraison se
+  // retrouve ainsi avec une position exploitable des sa validation, sans attendre qu'on ouvre un
+  // jour la carte "Trajet reel". Necessite tout de meme une connexion reseau (geocodage) ; si
+  // elle manque aussi a cet instant precis, on n'insiste pas ici — le meme repli sera retente
+  // automatiquement plus tard, a l'ouverture de la carte, des que le reseau sera revenu.
+  function repliAdresseSiPossible(raison){
+    state._geoStatus=raison;
+    render();
+    ids.forEach(function(id){
+      var d=state.deliveries.find(function(x){return x.id===id;});
+      if(!d||!d.address)return;
+      geocoderAdresseSiBesoin(d.address).then(function(geo){
+        if(!geo)return;
+        state.deliveries=state.deliveries.map(function(dd){
+          if(dd.id!==id||(dd.geoLat&&dd.geoLng))return dd; // ne jamais ecraser une vraie position GPS obtenue entre-temps
+          return Object.assign({},dd,{geoLat:geo.lat,geoLng:geo.lng,geoApprox:true});
+        });
+        persist(state.deliveries);
+        render();
+      });
+    });
+  }
   if(!navigator.geolocation){
-    state._geoStatus='unsupported';
+    repliAdresseSiPossible('unsupported');
     return;
   }
-  var ids=Array.isArray(deliveryIds)?deliveryIds:[deliveryIds];
   navigator.geolocation.getCurrentPosition(function(pos){
     var lat=pos.coords.latitude,lng=pos.coords.longitude;
     state.deliveries=state.deliveries.map(function(d){
       if(ids.indexOf(d.id)===-1)return d;
-      return Object.assign({},d,{geoLat:lat,geoLng:lng});
+      return Object.assign({},d,{geoLat:lat,geoLng:lng,geoApprox:false});
     });
     state._geoStatus='ok';
     persist(state.deliveries);
     render();
   },function(err){
-    // La position est une donnee complementaire, jamais bloquante pour la validation,
-    // mais on garde une trace de l'echec pour pouvoir l'expliquer dans l'interface.
-    state._geoStatus=err&&err.code===1?'denied':'failed';
-    render();
+    // La position est une donnee complementaire, jamais bloquante pour la validation, mais on
+    // tente aussitot le repli sur l'adresse plutot que de laisser la livraison sans aucune
+    // position exploitable.
+    repliAdresseSiPossible(err&&err.code===1?'denied':'failed');
   },{enableHighAccuracy:true,timeout:8000,maximumAge:30000});
 }
 function getDeliveryPhotos(d){
@@ -4014,7 +4037,7 @@ function geocoderAdresseSiBesoin(adresse){
 // livraisons sans GPS ET sans adresse exploitable sont ecartees.
 function resoudrePositionsTrajet(items){
   return Promise.all(items.map(function(d){
-    if(d.geoLat&&d.geoLng)return Promise.resolve({d:d,lat:d.geoLat,lng:d.geoLng,approx:false});
+    if(d.geoLat&&d.geoLng)return Promise.resolve({d:d,lat:d.geoLat,lng:d.geoLng,approx:!!d.geoApprox});
     if(d.address)return geocoderAdresseSiBesoin(d.address).then(function(geo){
       return geo?{d:d,lat:geo.lat,lng:geo.lng,approx:true}:null;
     });
