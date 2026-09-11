@@ -4088,6 +4088,7 @@ function getTrajetItemsForCamion(camId){
 function formatDureeMin(min){
   if(min==null||isNaN(min))return'—';
   if(min<0)return'—'; // horaires incoherents (ex: depose saisie avant la derniere livraison) -> on n'affiche rien plutot qu'un nombre negatif trompeur
+  if(min>960)return'—'; // plus de 16h : signale presque toujours une confusion de date (camion garde en memoire un jour different de la livraison) -> mieux vaut ne rien afficher qu'un chiffre absurde
   var h=Math.floor(min/60),m=min%60;
   return h>0?(h+'h'+(m>0?(m<10?'0':'')+m:'')):(min+' min');
 }
