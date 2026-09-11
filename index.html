@@ -2852,6 +2852,12 @@ function captureGeoLocationAsync(deliveryIds){
         });
         persist(state.deliveries);
         render();
+        // Retour explicite et visible (temporaire, le temps de diagnostiquer) : sans ca, personne
+        // ne sait qu'un repli s'est produit ni pourquoi, tant qu'on ne clique pas sur le marqueur
+        // de la carte des jours plus tard.
+        setTimeout(function(){
+          alert('⚠️ Position GPS non obtenue pour "'+(d.client||'cette livraison')+'" — adresse utilisée à la place.\n\nDétail technique :\n'+(state._geoStatusMsg||raison));
+        },300);
       });
     });
   }
@@ -2866,8 +2872,15 @@ function captureGeoLocationAsync(deliveryIds){
       return Object.assign({},d,{geoLat:lat,geoLng:lng,geoApprox:false});
     });
     state._geoStatus='ok';
+    state._geoStatusMsg='Position GPS obtenue (precision : '+Math.round(pos.coords.accuracy||0)+' m).';
+    console.log('[GEO] Position reelle obtenue :',lat,lng,'precision',pos.coords.accuracy);
     persist(state.deliveries);
     render();
+  }
+  function libelleErreurGeo(err){
+    if(!err)return'Erreur inconnue';
+    var codes={1:'Permission refusee',2:'Position indisponible',3:'Delai depasse (timeout)'};
+    return(codes[err.code]||'Code '+err.code)+' — '+(err.message||'');
   }
   // Strategie a deux niveaux, comme le ferait une vraie app GPS : une premiere tentative en
   // haute precision (le GPS du telephone) peut prendre du temps a l'interieur d'un batiment
@@ -2877,8 +2890,11 @@ function captureGeoLocationAsync(deliveryIds){
   // lecture plus rapide et moins precise (reseau/WiFi), qui fonctionne bien mieux en interieur,
   // avant de se rabattre sur l'adresse en tout dernier recours.
   navigator.geolocation.getCurrentPosition(enregistrerPositionReelle,function(errPrecis){
-    if(errPrecis&&errPrecis.code===1){repliAdresseSiPossible('denied');return;} // refus explicite : inutile de retenter, ca echouera pareil
+    console.error('[GEO] Echec tentative precise :',libelleErreurGeo(errPrecis));
+    if(errPrecis&&errPrecis.code===1){state._geoStatusMsg='Tentative precise : '+libelleErreurGeo(errPrecis);repliAdresseSiPossible('denied');return;} // refus explicite : inutile de retenter, ca echouera pareil
     navigator.geolocation.getCurrentPosition(enregistrerPositionReelle,function(errRapide){
+      console.error('[GEO] Echec tentative rapide :',libelleErreurGeo(errRapide));
+      state._geoStatusMsg='Tentative précise : '+libelleErreurGeo(errPrecis)+' | Tentative rapide : '+libelleErreurGeo(errRapide);
       repliAdresseSiPossible(errRapide&&errRapide.code===1?'denied':'failed');
     },{enableHighAccuracy:false,timeout:6000,maximumAge:60000});
   },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
