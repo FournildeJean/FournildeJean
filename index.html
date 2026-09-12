@@ -2574,6 +2574,24 @@ function extractTourneeInfo(text){
   }
   return result;
 }
+// Repli positionnel (comme pour le nom du client) : lit directement l'item PDF "Tournee : X Y",
+// immunise contre un decoupage en lignes du texte brut qui varie selon le modele de BL et peut
+// faire echouer extractTourneeInfo (deja observe : un BL se retrouvant sans numero de tournee
+// du tout, ce qui degradait silencieusement "assigner toute la tournee" en "assigner ce seul
+// BL"). L'item "Tournee : X Y" est quasi toujours un SEUL element de texte dans le PDF, quel que
+// soit le modele, ce qui rend cette lecture positionnelle fiable meme quand le texte brut joint
+// echoue.
+function extractTourneeInfoByPosition(pageData){
+  if(!pageData||!pageData.items)return{tourneeNum:'',tourneeTitle:''};
+  var item=pageData.items.find(function(it){return it.str&&/^Tourn[eé]e\s*:/i.test(it.str.trim());});
+  if(!item)return{tourneeNum:'',tourneeTitle:''};
+  var txt=item.str.trim();
+  var m=txt.match(/Tourn[eé]e\s*:\s*(\S+)\s+(.+)$/i);
+  if(m)return{tourneeNum:m[1].trim(),tourneeTitle:m[2].trim()};
+  var m2=txt.match(/^Tourn[eé]e\s*:\s*(\S+)\s*$/i);
+  if(m2)return{tourneeNum:m2[1].trim(),tourneeTitle:''};
+  return{tourneeNum:'',tourneeTitle:''};
+}
 function importBlPdfsBulk(fileList){
   if(!window.pdfjsLib){state.errorMsg='Lecture PDF indisponible (bibliotheque non chargee). Reessayez plus tard.';render();return;}
   var files=Array.prototype.slice.call(fileList);
@@ -2601,6 +2619,10 @@ function importBlPdfsBulk(fileList){
         var texteAbsent=!text||!text.replace(/\s+/g,'').length; // aucun texte extractible -> probablement un PDF scanne/image, pas du texte reel
         var blNum=extractBlNumber(text);
         var tourneeInfo=extractTourneeInfo(text);
+        if(!tourneeInfo.tourneeNum){
+          var tourneeInfoPos=extractTourneeInfoByPosition(res.pageData);
+          if(tourneeInfoPos.tourneeNum)tourneeInfo=tourneeInfoPos;
+        }
         var infosPositionnelles=extractClientInfoByPosition(res.pageData,tourneeInfo.tourneeTitle);
         // Si le cadre "Adresse de livraison" ne contient aucun texte reel (cas d'un cadre-image,
         // frequent sur certains modeles de BL), on tente l'OCR sur cette zone precise avant de se
@@ -2795,9 +2817,24 @@ function addDelivery(data){var entry={id:genId(),client:data.client,address:data
 function assignLivreur(id,livreurId,wholeTournee){
   var liv=getLivreurById(livreurId);
   var target=state.deliveries.find(function(d){return d.id===id;});
-  var tourneeNum=(wholeTournee&&target)?target.tourneeNum:'';
+  // Match robuste : d'abord par numero de tournee (le plus fiable) ; si ce BL precis n'en a pas
+  // (extraction manquante selon le modele du PDF), on se rabat sur le titre de tournee pour ne
+  // pas silencieusement degrader "assigner toute la tournee" en "assigner seulement ce BL" —
+  // c'etait la cause reelle du bug observe (une tournee assignee partiellement, un BL restant
+  // seul en "non assigne").
+  function memeTournee(d){
+    if(!wholeTournee||!target||d.id===target.id)return false;
+    // Si les deux ont un numero de tournee, c'est la comparaison la plus fiable. Des qu'AU MOINS
+    // l'un des deux BL n'en a pas (extraction manquante sur ce BL precis, meme si les autres BL
+    // de la meme tournee l'ont correctement), on se rabat sur le titre — c'etait la cause reelle
+    // du bug observe : le BL clique avait son numero, mais un AUTRE BL de la meme tournee ne
+    // l'avait pas, et ne pouvait donc jamais matcher par numero.
+    if(target.tourneeNum&&d.tourneeNum)return d.tourneeNum===target.tourneeNum;
+    if(target.tourneeTitle&&d.tourneeTitle)return d.tourneeTitle===target.tourneeTitle;
+    return false;
+  }
   persist(state.deliveries.map(function(d){
-    if(d.id===id||(tourneeNum&&d.tourneeNum===tourneeNum)){
+    if(d.id===id||memeTournee(d)){
       return Object.assign({},d,{livreur:liv?liv.name:'',livreurPhone:liv?liv.phone:'',status:'pending',deliveredAt:null});
     }
     return d;
@@ -3921,7 +3958,10 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
   var nonAssignes=state.deliveries.filter(function(d){return !d.livreur&&d.status==='pending';});
   var parTournee={};
   nonAssignes.forEach(function(d){
-    var key=d.tourneeNum||'';
+    // Cle de regroupement robuste : numero de tournee si present ; sinon titre de tournee (utile
+    // quand le numero n'a pas ete extrait selon le modele du PDF) ; sinon le BL est isole (pas
+    // regroupe avec d'autres BL sans rapport qui auraient eux aussi un numero manquant).
+    var key=d.tourneeNum||(d.tourneeTitle?'titre:'+d.tourneeTitle:'solo:'+d.id);
     if(!parTournee[key])parTournee[key]={tourneeNum:d.tourneeNum,tourneeTitle:d.tourneeTitle,items:[]};
     parTournee[key].items.push(d);
   });
