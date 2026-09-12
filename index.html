@@ -38,7 +38,15 @@ const db = getFirestore(fbApp);
 // ── HELPERS FIREBASE ──
 async function fbSave(collection_name, id, data) {
   try {
-    await setDoc(doc(db, collection_name, id), data, { merge: true });
+    // Firestore refuse categoriquement tout champ ayant la valeur undefined (pas juste vide/null
+    // — litteralement absent de type) et rejette l'ECRITURE ENTIERE dans ce cas, tous les autres
+    // champs avec. C'etait la vraie cause d'un bug majeur : une assignation de livreur pouvait
+    // echouer silencieusement a cause d'un AUTRE champ (sans rapport) valant undefined sur cette
+    // meme livraison — l'erreur etait bien attrapee ci-dessous, mais rien n'indiquait que
+    // l'ecriture entiere avait ete perdue. On nettoie donc systematiquement avant d'envoyer.
+    var clean={};
+    Object.keys(data).forEach(function(k){if(data[k]!==undefined)clean[k]=data[k];});
+    await setDoc(doc(db, collection_name, id), clean, { merge: true });
   } catch(e) {
     console.error('Firebase save error:', e);
     if (typeof window.onFbSaveError === 'function') window.onFbSaveError(collection_name, e);
@@ -2677,11 +2685,6 @@ function load(date){
   state.loading=true;state.camions=loadCamions(date);state.caissesVisibles=loadCaissesVisibles(date);render();
   // Local d'abord pour affichage rapide
   state.deliveries=idbGet('fdj-tournee:'+date)||[];
-  try{
-    var h=new Date().toLocaleTimeString('fr-FR');
-    var assignes=state.deliveries.filter(function(d){return d.livreur;});
-    localStorage.setItem('fdj-debug-load','['+h+'] load('+date+') : '+state.deliveries.length+' BL en cache local, '+assignes.length+' assignes ('+assignes.map(function(d){return d.client+'->'+d.livreur;}).join(', ')+')');
-  }catch(e){}
   state.loading=false;render();
   // Firebase ensuite — écoute temps réel (chaque mise à jour, y compris celles d'un autre appareil, est appliquée immédiatement)
   if(window.fbReady){
@@ -2699,14 +2702,6 @@ function load(date){
         var local=localById[incoming.id];
         if(local){
           if(ecriturePendante(incoming.id))return local;
-          if(local.livreur&&incoming.livreur!==local.livreur){
-            try{
-              var h=new Date().toLocaleTimeString('fr-FR');
-              var journal='['+h+'] BL '+incoming.id+' ('+(local.client||'?')+') : livreur local="'+local.livreur+'" -> serveur="'+(incoming.livreur||'(vide)')+'" — synchronisation appliquee';
-              console.error('[SYNC-LIVREUR]',journal);
-              localStorage.setItem('fdj-debug-livreur-'+incoming.id,journal);
-            }catch(e){}
-          }
           var localReal=realCount(local.photos);
           var incomingReal=realCount(incoming.photos);
           return Object.assign({},incoming,{
@@ -3966,20 +3961,6 @@ function renderLivreurAccessSection(){
   return html;
 }
 function renderLivreursModal(){if(!state.showLivreurs)return'';
-  // Encart de diagnostic TEMPORAIRE (a retirer une fois le probleme d'assignation qui disparait
-  // resolu) : affiche directement, en clair, ce qui a ete journalise lors du dernier chargement
-  // et de la derniere synchronisation, sans avoir besoin des outils developpeur.
-  var debugHtml='';
-  try{
-    var dLoad=localStorage.getItem('fdj-debug-load');
-    var dSyncKeys=Object.keys(localStorage).filter(function(k){return k.indexOf('fdj-debug-livreur-')===0;});
-    if(dLoad||dSyncKeys.length){
-      debugHtml='<div style="background:#FEF4E6;border:2px solid #C87010;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#5A3A0A;font-family:var(--mono);word-break:break-word;">🔧 DIAGNOSTIC TEMPORAIRE<br>'+
-        (dLoad?esc(dLoad)+'<br>':'(aucun chargement journalise)<br>')+
-        (dSyncKeys.length?dSyncKeys.map(function(k){return esc(localStorage.getItem(k));}).join('<br>'):'(aucune synchronisation suspecte journalisee)')+
-        '</div>';
-    }
-  }catch(e){}
   // Section "non assignes", groupee par tournee, avec assignation en bloc depuis cet ecran
   // (l'assignation a ete retiree des ecrans tournee/BL, tout se passe desormais ici).
   var nonAssignes=state.deliveries.filter(function(d){return !d.livreur&&d.status==='pending';});
@@ -4051,7 +4032,7 @@ function renderLivreursModal(){if(!state.showLivreurs)return'';
     '<p style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">Personnes ou groupes à proposer au livreur quand il signale un problème.</p>'+
     waItems+
     '<div class="add-row"><input id="wa-nom" placeholder="Nom (ex: Groupe Alertes)" type="text" style="max-width:140px;"/><input id="wa-numero" placeholder="Numéro (ex: 33612345678)" type="tel"/><button class="btn-add-lv" data-action="submit-add-wa-contact">+</button></div>';
-  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" id="livreurs-modal-scroll" data-preserve-scroll data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+debugHtml+renderLivreurAccessSection()+nonAssignesHtml+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+waSection+'</div></div>';}
+  return'<div class="modal-overlay" data-action="close-livreurs"><div class="modal-sheet" id="livreurs-modal-scroll" data-preserve-scroll data-action="noop"><div class="modal-head"><h2 class="modal-title">Livreurs</h2><button class="modal-close" data-action="close-livreurs">←</button></div>'+renderLivreurAccessSection()+nonAssignesHtml+livItems+'<div class="divider"></div><div class="section-lbl">Ajouter un livreur</div><div class="add-row"><input id="nl-name" placeholder="Prénom" type="text"/><input id="nl-phone" placeholder="Téléphone" type="tel"/><button class="btn-add-lv" data-action="submit-add-livreur">+</button></div>'+waSection+'</div></div>';}
 var CONTENANTS=[
   {key:'manesVertes',label:'Manes vertes',recuperable:true,color:'C6E8C6'},
   {key:'caissesGrises',label:'Caisses grises',recuperable:true,color:'D9D9D9'},
@@ -5244,6 +5225,10 @@ window.onFbSaveError=function(collection_name, err){
   }
   if(collection_name==='fdj-caisses'){
     alert('⚠️ La synchronisation de cette caisse a échoué (elle reste visible sur cet appareil, mais ne sera pas partagée avec les autres tant que le problème n\'est pas résolu). Détail technique : '+msg);
+    return;
+  }
+  if(collection_name==='fdj-deliveries'||collection_name==='fdj-camions'||collection_name==='fdj-livreurs'){
+    alert('⚠️ Une mise à jour n\'a pas pu être enregistrée en ligne — elle reste visible sur cet appareil mais ne sera PAS partagée avec les autres tant que le problème persiste. Détail technique : '+msg);
   }
 };
 window.onFbListenError=function(collection_name, err){
