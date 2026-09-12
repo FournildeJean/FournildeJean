@@ -639,12 +639,12 @@ function loadCaisses(){try{var r=localStorage.getItem('fdj-caisses-list');return
 function initFbCaisses(){
   if(!window.fbReady){setTimeout(initFbCaisses,500);return;}
   window.onFbCaisses=function(data){
-    var list=Object.values(data);
+    var list=Object.values(data).filter(function(c){return !__idsRecemmentSupprimes[c.id];});
     if(list.length>0){
       var localById={};
       (state.caisses||[]).forEach(function(c){localById[c.id]=c;});
       list=list.map(function(incoming){
-        if(ecritureLocaleRecente('caisse:'+incoming.id)&&localById[incoming.id])return localById[incoming.id];
+        if(ecriturePendante('caisse:'+incoming.id)&&localById[incoming.id])return localById[incoming.id];
         return incoming;
       });
       state.caisses=list;
@@ -659,8 +659,14 @@ function loadWaContacts(){try{var r=localStorage.getItem('fdj-wa-contacts');retu
 function initFbWaContacts(){
   if(!window.fbReady){setTimeout(initFbWaContacts,500);return;}
   window.onFbConfig=function(data){
-    var list=Object.values(data||{});
+    var list=Object.values(data||{}).filter(function(c){return !__idsRecemmentSupprimes[c.id];});
     if(list.length>0){
+      var localById={};
+      (state.waContacts||[]).forEach(function(c){localById[c.id]=c;});
+      list=list.map(function(incoming){
+        if(ecriturePendante('waContact:'+incoming.id)&&localById[incoming.id])return localById[incoming.id];
+        return incoming;
+      });
       state.waContacts=list;
       try{localStorage.setItem('fdj-wa-contacts',JSON.stringify(list));}catch(e){}
       render();
@@ -674,7 +680,7 @@ function saveWaContact(nom,numero){
   state.waContacts=state.waContacts.concat([contact]);
   try{localStorage.setItem('fdj-wa-contacts',JSON.stringify(state.waContacts));}catch(e){}
   function doSave(){
-    if(window.fbReady){window.fbSave('fdj-config',contact.id,contact);}
+    if(window.fbReady){marquerEcriturePendante('waContact:'+contact.id,window.fbSave('fdj-config',contact.id,contact));}
     else setTimeout(doSave,500);
   }
   doSave();
@@ -682,15 +688,15 @@ function saveWaContact(nom,numero){
 function deleteWaContact(id){
   state.waContacts=state.waContacts.filter(function(c){return c.id!==id;});
   try{localStorage.setItem('fdj-wa-contacts',JSON.stringify(state.waContacts));}catch(e){}
+  marquerCommeSupprime(id);
   if(window.fbReady&&window.fbDelete){window.fbDelete('fdj-config',id);}
 }
 
 function saveCaisses(l){
   try{localStorage.setItem('fdj-caisses-list',JSON.stringify(l));}catch(e){}
-  l.forEach(function(c){marquerEcritureLocale('caisse:'+c.id);});
   function doFbSaveCai(){
     if(window.fbReady){
-      l.forEach(function(c){window.fbSave('fdj-caisses', c.id, c);});
+      l.forEach(function(c){marquerEcriturePendante('caisse:'+c.id,window.fbSave('fdj-caisses', c.id, c));});
     } else {
       setTimeout(doFbSaveCai,500);
     }
@@ -731,6 +737,7 @@ function deleteCaisses(ids){
   state.caisses=state.caisses.filter(function(c){return ids.indexOf(c.id)===-1;});
   saveCaisses(state.caisses);
   ids.forEach(function(cid){
+    marquerCommeSupprime(cid);
     if(window.fbReady && window.fbDelete){window.fbDelete('fdj-caisses', cid);}
   });
 }
@@ -738,12 +745,12 @@ function deleteCaisses(ids){
 function initFbLivreurs(){
   if(!window.fbReady){setTimeout(initFbLivreurs,500);return;}
   window.onFbLivreurs=function(data){
-    var list=Object.values(data);
+    var list=Object.values(data).filter(function(liv){return !__idsRecemmentSupprimes[liv.id];});
     if(list.length>0){
       var localById={};
       (state.livreurs||[]).forEach(function(liv){localById[liv.id]=liv;});
       list=list.map(function(incoming){
-        if(ecritureLocaleRecente('livreur:'+incoming.id)&&localById[incoming.id])return localById[incoming.id];
+        if(ecriturePendante('livreur:'+incoming.id)&&localById[incoming.id])return localById[incoming.id];
         return incoming;
       });
       state.livreurs=list;
@@ -756,10 +763,9 @@ function initFbLivreurs(){
 initFbLivreurs();
 function saveLivreurs(l){
   try{localStorage.setItem('fdj-livreurs-list',JSON.stringify(l));}catch(e){}
-  l.forEach(function(liv){marquerEcritureLocale('livreur:'+liv.id);});
   function doFbSaveLiv(){
     if(window.fbReady){
-      l.forEach(function(liv){window.fbSave('fdj-livreurs', liv.id, liv);});
+      l.forEach(function(liv){marquerEcriturePendante('livreur:'+liv.id,window.fbSave('fdj-livreurs', liv.id, liv));});
     } else {
       setTimeout(doFbSaveLiv, 500);
     }
@@ -770,10 +776,9 @@ function loadCaissesVisibles(date){return idbGet('fdj-caisses-visibles:'+date)||
 function saveCaissesVisibles(date,obj){
   var ts=new Date().toISOString();
   idbSet('fdj-caisses-visibles:'+date,obj);
-  marquerEcritureLocale('caisses-visibles:'+date);
   function doFbSave(){
     if(window.fbReady){
-      window.fbSave('fdj-caisses-visibles', date, Object.assign({},obj,{date:date, updatedAt:ts}));
+      marquerEcriturePendante('caisses-visibles:'+date,window.fbSave('fdj-caisses-visibles', date, Object.assign({},obj,{date:date, updatedAt:ts})));
     } else {
       setTimeout(doFbSave, 500);
     }
@@ -784,10 +789,9 @@ function loadCamions(date){return idbGet('fdj-camions:'+date)||[];}
 function saveCamions(date,l){
   var ts=new Date().toISOString();
   idbSet('fdj-camions:'+date,l);
-  marquerEcritureLocale('camions:'+date);
   function doFbSave(){
     if(window.fbReady){
-      window.fbSave('fdj-camions', date, {camions:l, date:date, updatedAt:ts});
+      marquerEcriturePendante('camions:'+date,window.fbSave('fdj-camions', date, {camions:l, date:date, updatedAt:ts}));
     } else {
       setTimeout(doFbSave, 500);
     }
@@ -833,7 +837,7 @@ function deviceLivreurAutorise(){
 function initFbLivreurAccess(){
   if(!window.fbReady){setTimeout(initFbLivreurAccess,500);return;}
   window.onFbLivreurLiens=function(liens){
-    if(ecritureLocaleRecente('liens-livreurs'))return; // on vient de generer/revoquer localement, on ignore ce snapshot pas encore a jour
+    if(ecriturePendante('liens-livreurs'))return; // on vient de generer/revoquer localement, on ignore ce snapshot pas encore a jour
     liens=liens||[];
     state.livreurLiens=liens;
     // Si un lien vient d'etre ouvert et qu'il correspond a un code encore actif, on memorise
@@ -869,7 +873,6 @@ geocoderFournilSiBesoin();
 function genererLienLivreurPourPersonne(nom){
   var token=(Date.now().toString(36)+Math.random().toString(36).slice(2,10)).toUpperCase();
   var nouveauLien={token:token,nom:nom,createdAt:new Date().toISOString(),verif:'en-cours'};
-  marquerEcritureLocale('liens-livreurs');
   // Affichage optimiste immediat : le lien apparait tout de suite dans la liste, complet et
   // utilisable, sans attendre la confirmation d'enregistrement.
   state.livreurLiens=(state.livreurLiens||[]).concat([nouveauLien]);
@@ -877,7 +880,7 @@ function genererLienLivreurPourPersonne(nom){
   function doSave(){
     if(window.fbReady){
       var listeAEnregistrer=state.livreurLiens.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt};}); // jamais le champ verif, purement local
-      window.fbSave('fdj-access','liens-livreurs',{liens:listeAEnregistrer}).then(function(){
+      var promesse=window.fbSave('fdj-access','liens-livreurs',{liens:listeAEnregistrer}).then(function(){
         return window.fbModules.getDoc(window.fbModules.doc(window.fbDb,'fdj-access','liens-livreurs'));
       }).then(function(snap){
         var liensVerif=snap.exists()?(snap.data().liens||[]):[];
@@ -890,6 +893,7 @@ function genererLienLivreurPourPersonne(nom){
         render();
         alert('⚠️ Échec de l\'enregistrement du lien en ligne : '+((err&&err.message)||'erreur inconnue')+'.');
       });
+      marquerEcriturePendante('liens-livreurs',promesse);
     } else {
       setTimeout(doSave,500);
     }
@@ -899,8 +903,7 @@ function genererLienLivreurPourPersonne(nom){
 function revoquerLienLivreur(token){
   var nouvelleListe=(state.livreurLiens||[]).filter(function(l){return l.token!==token;});
   state.livreurLiens=nouvelleListe;
-  marquerEcritureLocale('liens-livreurs');
-  window.fbSave('fdj-access','liens-livreurs',{liens:nouvelleListe.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt};})});
+  marquerEcriturePendante('liens-livreurs',window.fbSave('fdj-access','liens-livreurs',{liens:nouvelleListe.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt};})}));
   render();
 }
 function lienLivreurAccessUrl(token){
@@ -922,20 +925,22 @@ function partagerLienLivreurAccess(token){
 }
 
 
-// Periode de grace generique (8s) : marque qu'on vient d'ecrire quelque chose localement sous
-// une cle donnee, pour ignorer une synchronisation temps reel qui arriverait entre-temps avec
-// des donnees pas encore a jour (le serveur n'a pas toujours rattrape notre propre ecriture au
-// moment ou il renvoie sa prochaine mise a jour). Sans ca, n'importe quelle modification recente
-// (assignation, pointage, ajout d'un livreur, position GPS...) peut se retrouver silencieusement
-// ecrasee quelques instants plus tard.
-function marquerEcritureLocale(cle){
-  window.__localWriteTimestamps=window.__localWriteTimestamps||{};
-  window.__localWriteTimestamps[cle]=Date.now();
+// Protection basee sur la CONFIRMATION reelle du serveur (pas un delai devine) : tant qu'une
+// ecriture Firestore pour une cle donnee n'est pas confirmee terminee, toute synchronisation
+// temps reel entrante pour cette meme cle est ignoree (elle ne peut que refleter un etat
+// anterieur a notre propre ecriture). Des que la confirmation arrive, la protection se leve
+// immediatement — ni trop tot (ce qui laissait echapper des ecritures lentes), ni trop tard.
+window.__pendingWrites={};
+function marquerEcriturePendante(cle,promesse){
+  window.__pendingWrites[cle]=(window.__pendingWrites[cle]||0)+1;
+  var fin=function(){
+    window.__pendingWrites[cle]=(window.__pendingWrites[cle]||1)-1;
+    if(window.__pendingWrites[cle]<=0)delete window.__pendingWrites[cle];
+  };
+  if(promesse&&typeof promesse.then==='function')promesse.then(fin,fin);
+  else setTimeout(fin,15000); // filet de securite si jamais aucune promesse n'est fournie
 }
-function ecritureLocaleRecente(cle){
-  window.__localWriteTimestamps=window.__localWriteTimestamps||{};
-  return(Date.now()-(window.__localWriteTimestamps[cle]||0))<8000;
-}
+function ecriturePendante(cle){return!!(window.__pendingWrites&&window.__pendingWrites[cle]);}
 function toLocalISODate(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
 // Nettoyage automatique : verifie a la connexion responsable si ca fait au moins 15 jours
 // depuis le dernier nettoyage ; si oui, supprime les donnees (BL, photos, camions) de plus
@@ -1483,7 +1488,7 @@ function fmtTime(raw){var d=(raw||'').replace(/\D/g,'').slice(0,4);if(d.length>=
 function normalizeTime(val){if(!val)return'';if(val.indexOf(':')!==-1)return val;return fmtTime(val);}
 
 function addLivreur(name,phone){var l={id:genId(),name:name.trim(),phone:phone.trim()};state.livreurs=state.livreurs.concat([l]);saveLivreurs(state.livreurs);return l.id;}
-function deleteLivreur(id){state.livreurs=state.livreurs.filter(function(l){return l.id!==id;});saveLivreurs(state.livreurs);}
+function deleteLivreur(id){state.livreurs=state.livreurs.filter(function(l){return l.id!==id;});saveLivreurs(state.livreurs);marquerCommeSupprime(id);if(window.fbReady&&window.fbDelete){window.fbDelete('fdj-livreurs',id);}}
 function getLivreurById(id){return state.livreurs.find(function(l){return l.id===id;})||null;}
 function findOrCreateLivreur(name){var found=state.livreurs.find(function(l){return l.name.toLowerCase()===name.toLowerCase();});if(found)return found.id;return addLivreur(name,'');}
 function getCamionsByLivreurId(lid){return state.camions.filter(function(c){return c.livreurId===lid;});}
@@ -2663,17 +2668,10 @@ function load(date){
       function realCount(photos){return(photos||[]).filter(function(p){return p&&p.src;}).length;}
       var localById={};
       state.deliveries.forEach(function(d){localById[d.id]=d;});
-      window.__localWriteTimestamps=window.__localWriteTimestamps||{};
       var merged=deliveries.filter(function(incoming){return !__idsRecemmentSupprimes[incoming.id];}).map(function(incoming){
         var local=localById[incoming.id];
         if(local){
-          // Periode de grace (8s) : si CET appareil vient tout juste d'ecrire cette livraison
-          // (assignation, pointage, position GPS...), on ignore la photo serveur le temps que la
-          // synchronisation rattrape reellement notre ecriture — sinon un snapshot pas encore a
-          // jour peut ecraser silencieusement ce qu'on vient de faire (deja observe : une
-          // assignation de livreur qui "disparaissait" juste apres avoir ete faite).
-          var ecritureLocaleRecente=(Date.now()-(window.__localWriteTimestamps[incoming.id]||0))<8000;
-          if(ecritureLocaleRecente)return local;
+          if(ecriturePendante(incoming.id))return local;
           var localReal=realCount(local.photos);
           var incomingReal=realCount(incoming.photos);
           return Object.assign({},incoming,{
@@ -2694,7 +2692,7 @@ function load(date){
     window._unsubDeliveries=window.listenTodayDeliveries(date);
     if(window._unsubCamions) window._unsubCamions();
     window.onFbCamions=function(camions){
-      if(ecritureLocaleRecente('camions:'+date))return; // on vient de modifier localement, on ignore ce snapshot pas encore a jour
+      if(ecriturePendante('camions:'+date))return; // on vient de modifier localement, on ignore ce snapshot pas encore a jour
       state.camions=camions;
       idbSet('fdj-camions:'+date,camions);
       render();
@@ -2702,7 +2700,7 @@ function load(date){
     window._unsubCamions=window.listenCamions(date);
     if(window._unsubCaissesVisibles) window._unsubCaissesVisibles();
     window.onFbCaissesVisibles=function(data){
-      if(ecritureLocaleRecente('caisses-visibles:'+date))return;
+      if(ecriturePendante('caisses-visibles:'+date))return;
       state.caissesVisibles=data||{mode:'all',clients:[]};
       idbSet('fdj-caisses-visibles:'+date,state.caissesVisibles);
       render();
@@ -2768,13 +2766,11 @@ function persist(list){
     if(!avant)return true;
     return JSON.stringify(lightCopy(avant))!==JSON.stringify(lightCopy(d));
   });
-  // Marque chaque livraison qu'on vient reellement de modifier avec l'instant present : sert de
-  // "periode de grace" cote synchronisation temps reel (onFbDeliveries), pour ignorer une
-  // photo (snapshot) du serveur qui n'aurait pas encore rattrape ce qu'on vient d'ecrire — sans
-  // ca, une assignation de livreur, un pointage ou une position GPS tout juste enregistres
-  // pouvaient se retrouver silencieusement ecrases quelques instants plus tard.
-  window.__localWriteTimestamps=window.__localWriteTimestamps||{};
-  aSauvegarder.forEach(function(d){window.__localWriteTimestamps[d.id]=Date.now();});
+  // Marque chaque livraison qu'on vient reellement de modifier comme "en attente de
+  // confirmation serveur" : protege contre une synchronisation temps reel (onFbDeliveries) qui
+  // arriverait avec un etat anterieur a notre ecriture — sans ca, une assignation de livreur, un
+  // pointage ou une position GPS tout juste enregistres pouvaient se retrouver silencieusement
+  // ecrases quelques instants (ou dizaines de secondes, selon la latence reseau) plus tard.
   var idsActuels={};
   list.forEach(function(d){idsActuels[d.id]=true;});
   var idsSupprimes=previousList.filter(function(d){return !idsActuels[d.id];}).map(function(d){return d.id;});
@@ -2783,7 +2779,7 @@ function persist(list){
       aSauvegarder.forEach(function(d){
         var copy=lightCopy(d);
         copy.updatedAt=ts;
-        window.fbSave('fdj-deliveries', d.id, copy);
+        marquerEcriturePendante(d.id,window.fbSave('fdj-deliveries', d.id, copy));
       });
       idsSupprimes.forEach(function(id){
         marquerCommeSupprime(id);
