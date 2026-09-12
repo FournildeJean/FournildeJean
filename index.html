@@ -2834,8 +2834,15 @@ function appliquerPointageGroupe(){
   render();
 }
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
+function ecrireDebugGeoLocal(msg){
+  try{
+    var h=new Date().toLocaleTimeString('fr-FR');
+    localStorage.setItem('fdj-geo-debug-last','['+h+'] '+msg);
+  }catch(e){}
+}
 function captureGeoLocationAsync(deliveryIds){
   var ids=Array.isArray(deliveryIds)?deliveryIds:[deliveryIds];
+  ecrireDebugGeoLocal('captureGeoLocationAsync demarree pour BL : '+ids.join(','));
   // Marqueur ecrit IMMEDIATEMENT et de facon SYNCHRONE, avant toute tentative GPS (qui elle est
   // asynchrone et peut prendre jusqu'a 20 secondes). Sert a isoler precisement le probleme : si ce
   // marqueur lui-meme n'apparait jamais apres validation, c'est que cette fonction n'est pas
@@ -2854,6 +2861,7 @@ function captureGeoLocationAsync(deliveryIds){
   // ouvrant le BL, sans depender d'un timing precis.
   function enregistrerDiagnostic(msg){
     console.log('[GEO]',msg);
+    ecrireDebugGeoLocal(msg);
     state.deliveries=state.deliveries.map(function(d){
       if(ids.indexOf(d.id)===-1)return d;
       return Object.assign({},d,{geoDebug:msg});
@@ -2925,6 +2933,7 @@ function captureGeoLocationAsync(deliveryIds){
   },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
   }catch(e){
     console.error('[GEO] Erreur inattendue dans captureGeoLocationAsync :',e);
+    ecrireDebugGeoLocal('❌ Erreur technique inattendue : '+(e&&e.message?e.message:String(e)));
     state.deliveries=state.deliveries.map(function(d){
       if(ids.indexOf(d.id)===-1)return d;
       return Object.assign({},d,{geoDebug:'❌ Erreur technique inattendue : '+(e&&e.message?e.message:String(e))});
@@ -3420,12 +3429,19 @@ function renderProductsSection(){
 }
 function timeInputBig(id,val){return'<div class="time-wrap"><span class="time-lbl">Heure prévue *</span><input id="'+id+'" type="text" inputmode="numeric" maxlength="5" value="'+(val||nowTime())+'" class="time-big time-txt" placeholder="06:30"/><div class="time-hint">Tapez les chiffres — 0630 → 06:30</div></div>';}
 
+function renderDebugGeoBanner(){
+  var msg='';
+  try{msg=localStorage.getItem('fdj-geo-debug-last')||'';}catch(e){}
+  if(!msg)return'';
+  return '<div style="background:#FEF4E6;border:2px solid #C87010;border-radius:8px;padding:10px 12px;margin:10px 16px;font-size:11.5px;color:#5A3A0A;font-family:var(--mono);word-break:break-word;">🔧 DEBUG GPS (temporaire) :<br>'+esc(msg)+'</div>';
+}
 function renderLivreurApp(){
   var total=state.deliveries.length,
       delivered=state.deliveries.filter(function(d){return d.status==='delivered';}).length,
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
   var html='<div class="shell">';
+  html+=renderDebugGeoBanner();
   html+='<div class="app-header"><div class="header-top">'+
     '<div class="header-text">'+
       '<div class="header-eyebrow">Carnet de tournée</div>'+
@@ -4252,6 +4268,7 @@ function renderResponsableApp(){
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
   var html='<div class="shell">';
+  html+=renderDebugGeoBanner();
   html+='<div class="app-header"><div class="header-top" style="padding-bottom:10px;">'+
     '<div class="header-text">'+
       '<div class="header-title">Fournil de Jean</div>'+
