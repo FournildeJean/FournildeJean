@@ -2616,7 +2616,11 @@ function load(date){
           var incomingReal=realCount(incoming.photos);
           return Object.assign({},incoming,{
             photos:localReal>=incomingReal?(local.photos||[]):(incoming.photos||[]),
-            blPdf:local.blPdf||incoming.blPdf||null
+            blPdf:local.blPdf||incoming.blPdf||null,
+            geoLat:local.geoLat!=null?local.geoLat:incoming.geoLat,
+            geoLng:local.geoLng!=null?local.geoLng:incoming.geoLng,
+            geoApprox:local.geoLat!=null?local.geoApprox:incoming.geoApprox,
+            geoDebug:local.geoDebug||incoming.geoDebug
           });
         }
         return incoming;
