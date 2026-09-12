@@ -641,6 +641,12 @@ function initFbCaisses(){
   window.onFbCaisses=function(data){
     var list=Object.values(data);
     if(list.length>0){
+      var localById={};
+      (state.caisses||[]).forEach(function(c){localById[c.id]=c;});
+      list=list.map(function(incoming){
+        if(ecritureLocaleRecente('caisse:'+incoming.id)&&localById[incoming.id])return localById[incoming.id];
+        return incoming;
+      });
       state.caisses=list;
       try{localStorage.setItem('fdj-caisses-list',JSON.stringify(list));}catch(e){}
       render();
@@ -681,6 +687,7 @@ function deleteWaContact(id){
 
 function saveCaisses(l){
   try{localStorage.setItem('fdj-caisses-list',JSON.stringify(l));}catch(e){}
+  l.forEach(function(c){marquerEcritureLocale('caisse:'+c.id);});
   function doFbSaveCai(){
     if(window.fbReady){
       l.forEach(function(c){window.fbSave('fdj-caisses', c.id, c);});
@@ -733,6 +740,12 @@ function initFbLivreurs(){
   window.onFbLivreurs=function(data){
     var list=Object.values(data);
     if(list.length>0){
+      var localById={};
+      (state.livreurs||[]).forEach(function(liv){localById[liv.id]=liv;});
+      list=list.map(function(incoming){
+        if(ecritureLocaleRecente('livreur:'+incoming.id)&&localById[incoming.id])return localById[incoming.id];
+        return incoming;
+      });
       state.livreurs=list;
       try{localStorage.setItem('fdj-livreurs-list',JSON.stringify(list));}catch(e){}
       render();
@@ -743,6 +756,7 @@ function initFbLivreurs(){
 initFbLivreurs();
 function saveLivreurs(l){
   try{localStorage.setItem('fdj-livreurs-list',JSON.stringify(l));}catch(e){}
+  l.forEach(function(liv){marquerEcritureLocale('livreur:'+liv.id);});
   function doFbSaveLiv(){
     if(window.fbReady){
       l.forEach(function(liv){window.fbSave('fdj-livreurs', liv.id, liv);});
@@ -756,6 +770,7 @@ function loadCaissesVisibles(date){return idbGet('fdj-caisses-visibles:'+date)||
 function saveCaissesVisibles(date,obj){
   var ts=new Date().toISOString();
   idbSet('fdj-caisses-visibles:'+date,obj);
+  marquerEcritureLocale('caisses-visibles:'+date);
   function doFbSave(){
     if(window.fbReady){
       window.fbSave('fdj-caisses-visibles', date, Object.assign({},obj,{date:date, updatedAt:ts}));
@@ -769,6 +784,7 @@ function loadCamions(date){return idbGet('fdj-camions:'+date)||[];}
 function saveCamions(date,l){
   var ts=new Date().toISOString();
   idbSet('fdj-camions:'+date,l);
+  marquerEcritureLocale('camions:'+date);
   function doFbSave(){
     if(window.fbReady){
       window.fbSave('fdj-camions', date, {camions:l, date:date, updatedAt:ts});
@@ -817,6 +833,7 @@ function deviceLivreurAutorise(){
 function initFbLivreurAccess(){
   if(!window.fbReady){setTimeout(initFbLivreurAccess,500);return;}
   window.onFbLivreurLiens=function(liens){
+    if(ecritureLocaleRecente('liens-livreurs'))return; // on vient de generer/revoquer localement, on ignore ce snapshot pas encore a jour
     liens=liens||[];
     state.livreurLiens=liens;
     // Si un lien vient d'etre ouvert et qu'il correspond a un code encore actif, on memorise
@@ -830,6 +847,19 @@ function initFbLivreurAccess(){
       }
       window._pendingLivreurAccessCode=null;
     }
+    // Revalidation continue : une session livreur DEJA ouverte (avant meme ce chargement de la
+    // liste, ex: session restauree automatiquement au demarrage via sessionStorage) doit rester
+    // soumise a la meme regle que n'importe quel nouvel acces. Sans cette verification ici, un
+    // lien revoque par le responsable continuait de fonctionner indefiniment pour quiconque
+    // etait deja connecte — la revocation n'avait alors plus aucun effet reel.
+    if(state.role==='livreur'&&state.screen==='app'&&!deviceLivreurAutorise()){
+      try{sessionStorage.removeItem('fdj-role');}catch(e){}
+      try{sessionStorage.removeItem('fdj-livreur-id');}catch(e){}
+      try{localStorage.removeItem('fdj-device-livreur-ok');}catch(e){}
+      state.role=null;
+      state.screen='choose';
+      state.loginError='Votre accès a été révoqué par le responsable. Demandez un nouveau lien.';
+    }
     render();
   };
   window._unsubLivreurAccess=window.listenLivreurLiens();
@@ -839,6 +869,7 @@ geocoderFournilSiBesoin();
 function genererLienLivreurPourPersonne(nom){
   var token=(Date.now().toString(36)+Math.random().toString(36).slice(2,10)).toUpperCase();
   var nouveauLien={token:token,nom:nom,createdAt:new Date().toISOString(),verif:'en-cours'};
+  marquerEcritureLocale('liens-livreurs');
   // Affichage optimiste immediat : le lien apparait tout de suite dans la liste, complet et
   // utilisable, sans attendre la confirmation d'enregistrement.
   state.livreurLiens=(state.livreurLiens||[]).concat([nouveauLien]);
@@ -868,6 +899,7 @@ function genererLienLivreurPourPersonne(nom){
 function revoquerLienLivreur(token){
   var nouvelleListe=(state.livreurLiens||[]).filter(function(l){return l.token!==token;});
   state.livreurLiens=nouvelleListe;
+  marquerEcritureLocale('liens-livreurs');
   window.fbSave('fdj-access','liens-livreurs',{liens:nouvelleListe.map(function(l){return{token:l.token,nom:l.nom,createdAt:l.createdAt};})});
   render();
 }
@@ -890,6 +922,20 @@ function partagerLienLivreurAccess(token){
 }
 
 
+// Periode de grace generique (8s) : marque qu'on vient d'ecrire quelque chose localement sous
+// une cle donnee, pour ignorer une synchronisation temps reel qui arriverait entre-temps avec
+// des donnees pas encore a jour (le serveur n'a pas toujours rattrape notre propre ecriture au
+// moment ou il renvoie sa prochaine mise a jour). Sans ca, n'importe quelle modification recente
+// (assignation, pointage, ajout d'un livreur, position GPS...) peut se retrouver silencieusement
+// ecrasee quelques instants plus tard.
+function marquerEcritureLocale(cle){
+  window.__localWriteTimestamps=window.__localWriteTimestamps||{};
+  window.__localWriteTimestamps[cle]=Date.now();
+}
+function ecritureLocaleRecente(cle){
+  window.__localWriteTimestamps=window.__localWriteTimestamps||{};
+  return(Date.now()-(window.__localWriteTimestamps[cle]||0))<8000;
+}
 function toLocalISODate(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
 // Nettoyage automatique : verifie a la connexion responsable si ca fait au moins 15 jours
 // depuis le dernier nettoyage ; si oui, supprime les donnees (BL, photos, camions) de plus
@@ -2617,9 +2663,17 @@ function load(date){
       function realCount(photos){return(photos||[]).filter(function(p){return p&&p.src;}).length;}
       var localById={};
       state.deliveries.forEach(function(d){localById[d.id]=d;});
+      window.__localWriteTimestamps=window.__localWriteTimestamps||{};
       var merged=deliveries.filter(function(incoming){return !__idsRecemmentSupprimes[incoming.id];}).map(function(incoming){
         var local=localById[incoming.id];
         if(local){
+          // Periode de grace (8s) : si CET appareil vient tout juste d'ecrire cette livraison
+          // (assignation, pointage, position GPS...), on ignore la photo serveur le temps que la
+          // synchronisation rattrape reellement notre ecriture — sinon un snapshot pas encore a
+          // jour peut ecraser silencieusement ce qu'on vient de faire (deja observe : une
+          // assignation de livreur qui "disparaissait" juste apres avoir ete faite).
+          var ecritureLocaleRecente=(Date.now()-(window.__localWriteTimestamps[incoming.id]||0))<8000;
+          if(ecritureLocaleRecente)return local;
           var localReal=realCount(local.photos);
           var incomingReal=realCount(incoming.photos);
           return Object.assign({},incoming,{
@@ -2640,6 +2694,7 @@ function load(date){
     window._unsubDeliveries=window.listenTodayDeliveries(date);
     if(window._unsubCamions) window._unsubCamions();
     window.onFbCamions=function(camions){
+      if(ecritureLocaleRecente('camions:'+date))return; // on vient de modifier localement, on ignore ce snapshot pas encore a jour
       state.camions=camions;
       idbSet('fdj-camions:'+date,camions);
       render();
@@ -2647,6 +2702,7 @@ function load(date){
     window._unsubCamions=window.listenCamions(date);
     if(window._unsubCaissesVisibles) window._unsubCaissesVisibles();
     window.onFbCaissesVisibles=function(data){
+      if(ecritureLocaleRecente('caisses-visibles:'+date))return;
       state.caissesVisibles=data||{mode:'all',clients:[]};
       idbSet('fdj-caisses-visibles:'+date,state.caissesVisibles);
       render();
@@ -2712,6 +2768,13 @@ function persist(list){
     if(!avant)return true;
     return JSON.stringify(lightCopy(avant))!==JSON.stringify(lightCopy(d));
   });
+  // Marque chaque livraison qu'on vient reellement de modifier avec l'instant present : sert de
+  // "periode de grace" cote synchronisation temps reel (onFbDeliveries), pour ignorer une
+  // photo (snapshot) du serveur qui n'aurait pas encore rattrape ce qu'on vient d'ecrire — sans
+  // ca, une assignation de livreur, un pointage ou une position GPS tout juste enregistres
+  // pouvaient se retrouver silencieusement ecrases quelques instants plus tard.
+  window.__localWriteTimestamps=window.__localWriteTimestamps||{};
+  aSauvegarder.forEach(function(d){window.__localWriteTimestamps[d.id]=Date.now();});
   var idsActuels={};
   list.forEach(function(d){idsActuels[d.id]=true;});
   var idsSupprimes=previousList.filter(function(d){return !idsActuels[d.id];}).map(function(d){return d.id;});
@@ -4320,7 +4383,7 @@ function renderChoose(){
   var btnLivreur=deviceLivreurAutorise()
     ?'<button class="btn-photo btn-photo-livreur" data-action="goto-livreur-name"><div class="btn-photo-icon">🚚</div><div class="btn-photo-text"><span class="btn-photo-label">Je suis livreur</span><span class="btn-photo-desc">Pointage des livraisons</span></div></button>'
     :'<div class="btn-photo" style="opacity:.7;cursor:default;background:rgba(255,255,255,.08);"><div class="btn-photo-icon">🔒</div><div class="btn-photo-text"><span class="btn-photo-label">Accès livreur verrouillé</span><span class="btn-photo-desc">Demandez votre lien d\'accès à votre responsable</span></div></div>';
-  return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p><div class="login-photo-btns">'+btnLivreur+'<button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';
+  return'<div class="login-photo-bg"><div class="login-photo-content"><div class="login-photo-seal">🌾</div><h1 class="login-photo-brand">Fournil de Jean</h1><p class="login-photo-sub">Carnet de tournée</p>'+(state.loginError?'<p style="color:#fff;background:rgba(180,40,40,.55);border-radius:8px;padding:8px 14px;font-size:12.5px;margin:0 0 14px;">'+esc(state.loginError)+'</p>':'')+'<div class="login-photo-btns">'+btnLivreur+'<button class="btn-photo btn-photo-resp" data-action="goto-password"><div class="btn-photo-icon">🔐</div><div class="btn-photo-text"><span class="btn-photo-label">Accès responsable</span><span class="btn-photo-desc">Gestion complète</span></div></button></div></div></div>';
 }
 function renderLivreurName(){
   var saisieManuelle=state.showLivreurSaisieManuelle||state.livreurs.length===0;
