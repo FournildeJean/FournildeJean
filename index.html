@@ -1124,6 +1124,13 @@ function initTrajetMap(){
   var camIdCourant=state.showTrajet;
   var res=getTrajetItemsForCamion(camIdCourant);
   var items=res.items,fournilGeo=res.fournilGeo;
+  if(!fournilGeo){
+    // La toute premiere tentative (au demarrage de l'app) a pu echouer (reseau pas encore pret,
+    // coupure momentanee...) sans jamais etre retentee depuis. On retente ici, a chaque ouverture
+    // de la carte, jusqu'a ce que ca reussisse — sans ca, le fournil (et donc tout le trace)
+    // pouvait ne plus jamais apparaitre du reste de la session.
+    geocoderFournilSiBesoin();
+  }
   if(!items.length)return; // deja gere par un message dans renderTrajetModal, rien a faire ici
   mapEl.innerHTML='<div style="padding:16px;font-size:12px;color:var(--ink-3);text-align:center;">⏳ Chargement de la carte…</div>';
   // Position reelle (GPS capte au pointage) en priorite ; adresse geocodee en repli pour les
@@ -3442,7 +3449,6 @@ function renderLivreurApp(){
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
   var html='<div class="shell">';
-  html+=renderDebugGeoBanner();
   html+='<div class="app-header"><div class="header-top">'+
     '<div class="header-text">'+
       '<div class="header-eyebrow">Carnet de tournée</div>'+
@@ -4051,8 +4057,11 @@ function getFournilGeo(){
 function coordonneesPlausiblesFrance(lat,lng){
   return lat>=41&&lat<=51.5&&lng>=-5.5&&lng<=9.7;
 }
+var _geocodageFournilEnCours=false;
 function geocoderFournilSiBesoin(){
   if(getFournilGeo())return;
+  if(_geocodageFournilEnCours)return; // deja une tentative en cours, on evite de la dupliquer
+  _geocodageFournilEnCours=true;
   fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q='+encodeURIComponent(ADRESSE_FOURNIL))
     .then(function(r){return r.json();})
     .then(function(data){
@@ -4066,7 +4075,8 @@ function geocoderFournilSiBesoin(){
         }
       }
     })
-    .catch(function(e){console.error('Geocodage de l\'adresse du fournil impossible :',e);});
+    .catch(function(e){console.error('Geocodage de l\'adresse du fournil impossible :',e);})
+    .finally(function(){_geocodageFournilEnCours=false;});
 }
 // Geocodage d'une adresse client, utilise en repli sur la carte "Trajet reel" quand la vraie
 // position GPS n'a pas ete captee au moment du pointage (livraisons pointees avant l'ajout de
@@ -4269,7 +4279,6 @@ function renderResponsableApp(){
       pending=state.deliveries.filter(function(d){return d.status==='pending';}).length,
       issues=state.deliveries.filter(function(d){return['absent','refused','incident'].indexOf(d.status)!==-1;}).length;
   var html='<div class="shell">';
-  html+=renderDebugGeoBanner();
   html+='<div class="app-header"><div class="header-top" style="padding-bottom:10px;">'+
     '<div class="header-text">'+
       '<div class="header-title">Fournil de Jean</div>'+
