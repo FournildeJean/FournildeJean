@@ -2832,6 +2832,18 @@ function appliquerPointageGroupe(){
 function pointDelivery(id,updates){persist(state.deliveries.map(function(d){return d.id===id?Object.assign({},d,updates):d;}));render();}
 function captureGeoLocationAsync(deliveryIds){
   var ids=Array.isArray(deliveryIds)?deliveryIds:[deliveryIds];
+  // Marqueur ecrit IMMEDIATEMENT et de facon SYNCHRONE, avant toute tentative GPS (qui elle est
+  // asynchrone et peut prendre jusqu'a 20 secondes). Sert a isoler precisement le probleme : si ce
+  // marqueur lui-meme n'apparait jamais apres validation, c'est que cette fonction n'est pas
+  // appelee du tout (probleme plus haut dans la chaine) ; s'il apparait mais reste bloque dessus
+  // sans jamais evoluer, c'est que quelque chose plante a l'interieur, apres ce point.
+  state.deliveries=state.deliveries.map(function(d){
+    if(ids.indexOf(d.id)===-1)return d;
+    return Object.assign({},d,{geoDebug:'⏳ Capture GPS démarrée à '+new Date().toLocaleTimeString('fr-FR')+'…'});
+  });
+  try{persist(state.deliveries);}catch(e){console.error('[GEO] Erreur persist marqueur initial :',e);}
+  try{render();}catch(e){console.error('[GEO] Erreur render marqueur initial :',e);}
+  try{
   // Enregistre le diagnostic DIRECTEMENT sur chaque livraison (champ geoDebug), au lieu d'une
   // alerte ephemere qui peut ne jamais s'afficher (contexte d'app installee, changement d'ecran
   // juste apres la validation, navigateur qui differe l'alerte...). Consultable a tout moment en
@@ -2907,6 +2919,15 @@ function captureGeoLocationAsync(deliveryIds){
       repliAdresseSiPossible(detailPrecis+' | Tentative rapide : '+libelleErreurGeo(errRapide));
     },{enableHighAccuracy:false,timeout:6000,maximumAge:60000});
   },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
+  }catch(e){
+    console.error('[GEO] Erreur inattendue dans captureGeoLocationAsync :',e);
+    state.deliveries=state.deliveries.map(function(d){
+      if(ids.indexOf(d.id)===-1)return d;
+      return Object.assign({},d,{geoDebug:'❌ Erreur technique inattendue : '+(e&&e.message?e.message:String(e))});
+    });
+    try{persist(state.deliveries);}catch(e2){}
+    try{render();}catch(e2){}
+  }
 }
 function getDeliveryPhotos(d){
   if(d.photos&&d.photos.length)return d.photos.filter(function(p){return p&&p.src;});
