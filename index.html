@@ -2880,6 +2880,50 @@ function ouvrirAlerteWhatsApp(d){
 // Avant de finaliser reellement le pointage, on verifie si le responsable a demande le
 // comptage des caisses pour ce client aujourd'hui : si oui, on affiche le message avec bouton
 // OK, et on ne finalise qu'une fois ce message acquitte (voir action confirm-caisses-reminder).
+// Distance a vol d'oiseau entre deux points GPS, en metres (formule de Haversine).
+function distanceMetres(lat1,lng1,lat2,lng2){
+  var R=6371000;
+  function toRad(d){return d*Math.PI/180;}
+  var dLat=toRad(lat2-lat1),dLng=toRad(lng2-lng1);
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+// Verifie, juste AVANT de valider un pointage (quel que soit le statut : Livre, Absent, Refuse,
+// Incident), si la position reelle du livreur est proche de l'adresse du BL. Sert deux buts a la
+// fois : repere une erreur du livreur (mauvaise adresse/mauvais client) avant qu'elle ne soit
+// definitivement validee, et garde une trace durable de l'ecart en cas de litige (meme si le
+// livreur confirme et continue). Ne bloque jamais indefiniment : si la position ou l'adresse ne
+// sont pas disponibles rapidement, on laisse simplement passer sans avertissement (on ne peut
+// pas verifier, mais on ne doit jamais empecher un pointage pour autant).
+function verifierDistanceAvantValidation(id,deliveryAvant,suite){
+  if(!navigator.geolocation||!deliveryAvant||!deliveryAvant.address){suite();return;}
+  var termine=false;
+  var securite=setTimeout(function(){if(!termine){termine=true;suite();}},6000);
+  navigator.geolocation.getCurrentPosition(function(pos){
+    if(termine)return;
+    termine=true;clearTimeout(securite);
+    geocoderAdresseSiBesoin(deliveryAvant.address).then(function(geo){
+      if(!geo){suite();return;}
+      var dist=distanceMetres(pos.coords.latitude,pos.coords.longitude,geo.lat,geo.lng);
+      if(dist>500){
+        var km=(dist/1000).toFixed(1);
+        var continuer=confirm('⚠️ Votre position actuelle semble à environ '+km+' km de l\'adresse prévue pour ce BL :\n"'+deliveryAvant.address+'"\n\nConfirmez-vous vouloir valider ce pointage depuis cet endroit ?\n\n(OK = je confirme, cette position est correcte — Annuler = je vérifie d\'abord)');
+        if(continuer){
+          // Trace conservee sur le BL, meme si le livreur confirme : utile en cas de litige plus tard.
+          state.deliveries=state.deliveries.map(function(dd){return dd.id===id?Object.assign({},dd,{ecartAdressePointage:Math.round(dist)}):dd;});
+          suite();
+        }
+        // Si annule : on ne fait rien, le livreur reste sur l'ecran du BL pour verifier/corriger.
+      } else {
+        suite();
+      }
+    }).catch(function(){suite();});
+  },function(){
+    if(termine)return;
+    termine=true;clearTimeout(securite);
+    suite(); // GPS indisponible a cet instant : on ne bloque pas la validation pour autant
+  },{enableHighAccuracy:true,timeout:5000,maximumAge:30000});
+}
 function procederPointage(id,liv,note,deliveryAvant){
   if(deliveryAvant&&clientCaissesVisiblesAujourdhui(deliveryAvant.client)){
     state.showCaissesReminder=true;
@@ -2889,7 +2933,9 @@ function procederPointage(id,liv,note,deliveryAvant){
     render();
     return;
   }
-  finaliserPointage(id,liv,note,deliveryAvant);
+  verifierDistanceAvantValidation(id,deliveryAvant,function(){
+    finaliserPointage(id,liv,note,deliveryAvant);
+  });
 }
 function fermerDetailBL(){
   state.selectedId=null;
@@ -4104,7 +4150,7 @@ function renderPhotoLightbox(){
     '<button data-action="close-photo-lightbox" style="position:fixed;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:18px;cursor:pointer;">✕</button>'+
   '</div>';
 }
-function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';if(d.geoDebug)html+='<div style="font-size:10.5px;color:var(--ink-3);background:var(--paper-2);border-radius:6px;padding:6px 8px;margin-bottom:10px;">📍 Diagnostic position : '+esc(d.geoDebug)+'</div>';if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;padding:8px;font-size:12.5px;" data-action="download-bl" data-id="'+d.id+'">📄 Voir le PDF de ce BL</button>';html+='<div class="divider"></div>';
+function renderDetailModal(){if(!state.selectedId)return'';var d=state.deliveries.find(function(x){return x.id===state.selectedId;});if(!d)return'';var meta=STATUS_META[d.status],isPointed=d.status!=='pending';var html='<div class="modal-overlay" data-action="close-detail"><div class="modal-sheet" data-action="noop">';if(isPointed){var ts=d.deliveredAt?new Date(d.deliveredAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';html+='<div class="stamp" style="border:2px solid '+meta.fg+'"><div class="stamp-inner" style="border:1px dashed '+meta.fg+'"><span class="stamp-text" style="color:'+meta.fg+'">'+meta.label.toUpperCase()+'<br>'+ts+'</span></div></div>';}html+='<div style="padding-right:'+(isPointed?'84px':'0')+';margin-bottom:4px;"><div style="font-family:var(--mono);color:var(--ink-3);font-size:11px;margin-bottom:4px;">'+esc(d.time)+(d.ref?' · '+esc(d.ref):'')+'</div><div style="font-family:var(--display);font-size:20px;font-weight:400;color:var(--ink);">'+esc(d.client)+'</div></div>';html+='<div class="info-row"><span>📍</span><div>'+esc(d.address)+'<br><a class="maps-link" href="'+mapsUrl(d.address)+'" target="_blank">🗺 Ouvrir dans Maps</a></div></div>';if(d.instructions)html+='<div class="info-row"><span>📝</span><span>'+esc(d.instructions)+'</span></div>';if(d.geoDebug)html+='<div style="font-size:10.5px;color:var(--ink-3);background:var(--paper-2);border-radius:6px;padding:6px 8px;margin-bottom:10px;">📍 Diagnostic position : '+esc(d.geoDebug)+'</div>';if(d.ecartAdressePointage)html+='<div style="font-size:11px;color:#8A5A10;background:#FEF4E6;border:1px solid #F0D9B5;border-radius:6px;padding:7px 9px;margin-bottom:10px;">⚠️ Pointage confirmé à environ '+(d.ecartAdressePointage/1000).toFixed(1)+' km de l\'adresse prévue.</div>';if(d.blPdf)html+='<button class="btn-outline" style="width:100%;margin-bottom:10px;padding:8px;font-size:12.5px;" data-action="download-bl" data-id="'+d.id+'">📄 Voir le PDF de ce BL</button>';html+='<div class="divider"></div>';
   var livePhotos=getDeliveryPhotos(d);
   if(livePhotos.length)html+='<div style="margin-bottom:12px;"><div class="recap-lbl">🖼️ Photo constat ('+livePhotos.length+')</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">'+livePhotos.map(function(p,pi){
     var croixSuppression=state.role==='livreur'?'<button class="photo-del" data-action="delete-photo" data-id="'+d.id+'" data-photo-idx="'+pi+'" title="Supprimer cette photo">✕</button>':'';
@@ -5194,7 +5240,9 @@ else if(action==='confirm-caisses-reminder'){
   state.caissesReminderId=null;
   state._pendingPointageLiv=null;
   state._pendingPointageNote=null;
-  finaliserPointage(idCr,livCr,noteCr,deliveryAvantCr);
+  verifierDistanceAvantValidation(idCr,deliveryAvantCr,function(){
+    finaliserPointage(idCr,livCr,noteCr,deliveryAvantCr);
+  });
 }
 else if(action==='cancel-photo-reminder'){
   state.showPhotoReminder=false;
