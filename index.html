@@ -812,8 +812,8 @@ var _e=document.getElementById('img-exit');
 var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
-var dateDemarrage=(function(){try{var d=localStorage.getItem('fdj-last-date');if(d)return d;}catch(e){}return toLocalISODate(new Date());})();
-var state={screen:'choose',role:null,loginError:'',livreurLiens:[],livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(dateDemarrage),caissesVisibles:loadCaissesVisibles(dateDemarrage),date:dateDemarrage,deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false};
+var dateDemarrage=toLocalISODate(new Date());
+var state={screen:'choose',role:null,loginError:'',livreurLiens:[],livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(dateDemarrage),caissesVisibles:loadCaissesVisibles(dateDemarrage),date:dateDemarrage,deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false,_retourVersGroupeId:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;runCleanupIfDue();}
@@ -2891,6 +2891,13 @@ function procederPointage(id,liv,note,deliveryAvant){
   }
   finaliserPointage(id,liv,note,deliveryAvant);
 }
+function fermerDetailBL(){
+  state.selectedId=null;
+  if(state._retourVersGroupeId){
+    state.selectedGroupeId=state._retourVersGroupeId;
+    state._retourVersGroupeId=null;
+  }
+}
 function finaliserPointage(id,liv,note,deliveryAvant){
   var livreurNom=liv?liv.name:(state.role==='livreur'?state.livreurName:'');
   var statutApplique=state.pendingOutcome;
@@ -2925,12 +2932,12 @@ function finaliserPointage(id,liv,note,deliveryAvant){
         photos:getDeliveryPhotos(pointe)
       };
       state.showGroupePointage=true;
-      state.selectedId=null;
+      fermerDetailBL();
       render();
       return;
     }
   }
-  if(state.role==='livreur'){state.selectedId=null;render();}
+  if(state.role==='livreur'){fermerDetailBL();render();}
   state.modifyMode=false;
 }
 function appliquerPointageGroupe(){
@@ -3101,7 +3108,7 @@ function deleteDeliveryPhoto(id,index){
 }
 function revertDelivery(id){pointDelivery(id,{status:'pending',deliveredAt:null,livreur:'',livreurPhone:'',note:''});}
 function deleteDelivery(id){persist(state.deliveries.filter(function(d){return d.id!==id;}));state.selectedId=null;render();}
-function changeDate(delta){if(delta==='today'){state.date=toLocalISODate(new Date());}else{var p=state.date.split('-').map(Number),dt=new Date(p[0],p[1]-1,p[2]);dt.setDate(dt.getDate()+delta);state.date=toLocalISODate(dt);}try{localStorage.setItem('fdj-last-date',state.date);}catch(e){}load(state.date);}
+function changeDate(delta){if(delta==='today'){state.date=toLocalISODate(new Date());}else{var p=state.date.split('-').map(Number),dt=new Date(p[0],p[1]-1,p[2]);dt.setDate(dt.getDate()+delta);state.date=toLocalISODate(dt);}load(state.date);}
 
 function generateRapport(dateFrom, dateTo){
   // Collecter les camions (livreur + horaires + signature) de chaque jour de l'intervalle
@@ -4912,7 +4919,7 @@ if(action==='marquer-groupe-livre'){
   return;
 }
 if(action==='close-groupe-detail'){state.selectedGroupeId=null;state.pendingContenants=null;render();return;}
-if(action==='open-detail-from-groupe'){state.selectedGroupeId=null;state.selectedId=id;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;render();return;}
+if(action==='open-detail-from-groupe'){state._retourVersGroupeId=state.selectedGroupeId;state.selectedGroupeId=null;state.selectedId=id;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;render();return;}
 if(action==='valider-caisses-groupe'){
   var itemsGroupeC=itemsDuGroupe(id);
   if(!itemsGroupeC.length)return;
@@ -5094,7 +5101,7 @@ else if(action==='submit-add'){
   var r=(blVal?blVal+' | ':'')+prods.join(', ');
   addDelivery({client:c,address:a,time:t,ref:r,instructions:ins,deliveryDate:dv,blPdf:state.pdfData?state.pdfData.originalPdfBase64:null});
 }
-else if(action==='select'){state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();}
+else if(action==='select'){state.selectedId=id;state.selectedGroupeId=null;state.selectedTourneeNum=null;state._retourVersGroupeId=null;state.pendingOutcome='delivered';state.pendingNote='';state.pendingContenants=null;if(state.role!=='livreur')state.selectedLivreurId='';render();}
 else if(action==='close-detail'){
   var curD=state.deliveries.find(function(x){return x.id===state.selectedId;});
   if(curD&&curD.status==='pending'){
@@ -5105,7 +5112,7 @@ else if(action==='close-detail'){
       if(!confirm('Le pointage n\'a pas ete valide (bouton "Valider le pointage"). Les photos et notes sont deja enregistrees, mais le statut reste "En attente" tant que vous ne validez pas.\n\nFermer quand meme ?')) return;
     }
   }
-  state.selectedId=null;state.modifyMode=false;state.showModifier=false;state.pendingNote='';render();
+  fermerDetailBL();state.modifyMode=false;state.showModifier=false;state.pendingNote='';render();
 }
 else if(action==='set-outcome'){state.pendingOutcome=el.getAttribute('data-key');render();}
 else if(action==='incr-contenant'){
@@ -5336,6 +5343,17 @@ render=function(){
 };
 
 // Quand Firebase devient prêt → recharger depuis le cloud
+// Verifie et corrige automatiquement la date au retour au premier plan (ex: telephone verrouille
+// puis rouvert le lendemain matin, app restee ouverte sans etre rechargee) : sans ca, la date
+// resterait figee sur la veille jusqu'a une fermeture/reouverture complete de l'app.
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState!=='visible')return;
+  var aujourdHui=toLocalISODate(new Date());
+  if(state.screen==='app'&&state.date!==aujourdHui){
+    state.date=aujourdHui;
+    load(state.date);
+  }
+});
 window.addEventListener('firebase-ready', function(){
   console.log('Firebase prêt - synchronisation...');
   if(state.screen==='app'){
