@@ -819,7 +819,7 @@ var _IMG_SAVE=_s?_s.getAttribute('src'):'';
 var _IMG_EXIT=_e?_e.getAttribute('src'):'';
 function hashPwd(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);return(h>>>0).toString(36);}
 var dateDemarrage=toLocalISODate(new Date());
-var state={screen:'choose',role:null,loginError:'',livreurLiens:[],livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(dateDemarrage),caissesVisibles:loadCaissesVisibles(dateDemarrage),date:dateDemarrage,deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false,_retourVersGroupeId:null};
+var state={screen:'choose',role:null,loginError:'',livreurLiens:[],livreurName:localStorage.getItem('fdj-livreur')||'',livreurId:null,pendingLivreurName:'',pendingLivreurObj:null,livreurs:loadLivreurs(),camions:loadCamions(dateDemarrage),caissesVisibles:loadCaissesVisibles(dateDemarrage),date:dateDemarrage,deliveries:[],loading:false,showAdd:false,showLivreurs:false,selectedId:null,errorMsg:'',pendingOutcome:'delivered',selectedLivreurId:'',pdfParsing:false,pdfData:null,selMode:false,selected:{},modifyMode:false,showRapport:false,showModifier:false,showDashboard:false,selectedTourneeNum:null,caisses:loadCaisses(),showCaisses:false,showQrCard:null,showScanner:false,scanTarget:null,caisseSelMode:false,selectedCaisses:{},showTrajet:null,showTrajetPicker:false,caisseFilter:'',waContacts:loadWaContacts(),showWaPicker:false,waPickerTarget:null,waPickerMode:'alert',showCaissesInventaire:false,showCaissesDashboard:false,showPhotoReminder:false,photoReminderId:null,showCaissesReminder:false,caissesReminderId:null,_pendingPointageLiv:null,_pendingPointageNote:null,showCamionConfirm:false,camionConfirmData:null,showLivreurSaisieManuelle:false,showGroupePointage:false,groupePointageData:null,_livreurPendingExpanded:null,_groupeOuvert:null,selectedGroupeId:null,_caissesGroupeJusteEnregistre:null,_showNonAssignesLivreur:false,_retourVersGroupeId:null,showPdfViewer:null};
 var savedRole=sessionStorage.getItem('fdj-role');
 if(savedRole==='responsable'){state.screen='app';state.role='responsable';runCleanupIfDue();}
 else if(savedRole==='livreur'&&localStorage.getItem('fdj-livreur')){state.screen='app';state.role='livreur';state.livreurId=sessionStorage.getItem('fdj-livreur-id')||null;runCleanupIfDue();}
@@ -1013,6 +1013,32 @@ function runCleanupIfDue(){
 function formatDateLabel(s){var p=s.split('-').map(Number),dt=new Date(p[0],p[1]-1,p[2]);var l=dt.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});return l.charAt(0).toUpperCase()+l.slice(1);}
 function genId(){return 'd_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// Ouvre un PDF (BL individuel ou tournee groupee) directement DANS l'app, au lieu de forcer un
+// telechargement brut : evite de "sortir" de l'application, avec un bouton pour fermer et revenir
+// directement, plus un bouton pour telecharger/enregistrer si besoin.
+function ouvrirVisionneusePdf(url,filename,titre){
+  state.showPdfViewer={url:url,filename:filename,titre:titre};
+  render();
+}
+function fermerVisionneusePdf(){
+  if(state.showPdfViewer&&state.showPdfViewer.url&&state.showPdfViewer.url.indexOf('blob:')===0){
+    try{URL.revokeObjectURL(state.showPdfViewer.url);}catch(e){}
+  }
+  state.showPdfViewer=null;
+  render();
+}
+function renderPdfViewerModal(){
+  if(!state.showPdfViewer)return'';
+  var v=state.showPdfViewer;
+  return'<div class="modal-overlay" style="z-index:9000;" data-action="close-pdf-viewer"><div style="position:fixed;inset:0;background:#1A1208;display:flex;flex-direction:column;" data-action="noop">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#241A0F;border-bottom:1px solid #3A2C1A;gap:10px;">'+
+      '<div style="color:#F7F3EC;font-size:13px;font-family:Arial,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">'+esc(v.titre||'BL')+'</div>'+
+      '<a href="'+v.url+'" download="'+esc(v.filename)+'" style="padding:8px 12px;background:#F7F3EC;color:#1A1208;border-radius:6px;font-weight:700;font-size:12.5px;text-decoration:none;font-family:Arial,sans-serif;white-space:nowrap;">⬇ Télécharger</a>'+
+      '<button data-action="close-pdf-viewer" style="padding:8px 14px;background:transparent;color:#F7F3EC;border:2px solid #F7F3EC;border-radius:6px;font-weight:700;font-size:12.5px;font-family:Arial,sans-serif;white-space:nowrap;">✕ Fermer</button>'+
+    '</div>'+
+    '<iframe src="'+v.url+'" style="flex:1;border:none;background:#fff;"></iframe>'+
+  '</div></div>';
+}
 // Normalise un texte pour comparer/regrouper deux BL du meme client : insensible aux accents, a
 // la casse, aux espaces multiples et a la ponctuation legere (virgule, point). Sans ca, deux BL
 // du MEME client pouvaient echouer a se regrouper a cause d'une simple variation d'extraction
@@ -1101,13 +1127,7 @@ function mergeTourneePdfs(tourneeNum){
       var mergedBytes=await mergedPdf.save();
       var blob=new Blob([mergedBytes],{type:'application/pdf'});
       var url=URL.createObjectURL(blob);
-      var a=document.createElement('a');
-      a.href=url;
-      a.download='Tournee-'+tourneeNum+'-groupee-'+suffixHoraireFichier()+'.pdf';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function(){URL.revokeObjectURL(url);},5000);
+      ouvrirVisionneusePdf(url,'Tournee-'+tourneeNum+'-groupee-'+suffixHoraireFichier()+'.pdf','Tournée '+tourneeNum+' — BL groupés');
     }catch(err){
       alert('Erreur lors de la fusion des PDF : '+err.message+'\n\nVous pouvez toujours ouvrir chaque BL individuellement.');
     }
@@ -3775,7 +3795,7 @@ function renderLivreurApp(){
     html+='</div>';
   }
   html+='</div>';
-  html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderCamionConfirmModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupePointageModal()+renderPhotoLightbox();
+  html+=renderTourneeDetailModal()+renderQrCardModal()+renderScannerModal()+renderCamionConfirmModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupePointageModal()+renderPhotoLightbox()+renderPdfViewerModal();
   return html;
 }
 
@@ -4540,7 +4560,7 @@ function renderResponsableApp(){
   html+='<button class="btn-outline" style="width:calc(100% - 32px);margin:12px 16px;background:var(--amber-l,#FEF4E6);border-color:var(--amber);color:var(--amber-d,#8A5A10);font-weight:700;" data-action="export-commande-globale">📦 Générer la commande globale (Excel)</button>';
   html+=renderTimeline(false)+'</div>';
   html+='<button class="fab" data-action="open-add">+</button>';
-  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoLightbox();
+  html+=renderAddModal()+renderLivreursModal()+renderCaissesInventaireModal()+renderCaissesDashboardModal()+renderCaissesModal()+renderQrCardModal()+renderTourneeDetailModal()+renderRapportModal()+renderDashboardModal()+renderScannerModal()+renderTrajetPickerModal()+renderTrajetModal()+renderPhotoReminderModal()+renderCaissesReminderModal()+renderGroupeDetailModal()+renderDetailModal()+renderWaPickerModal()+renderPhotoLightbox()+renderPdfViewerModal();
   return html;
 }
 function renderChoose(){
@@ -5069,12 +5089,7 @@ if(action==='show-consigne'){
 if(action==='download-bl'){
   var delivBl=state.deliveries.find(function(x){return x.id===id;});
   if(delivBl&&delivBl.blPdf){
-    var a=document.createElement('a');
-    a.href=delivBl.blPdf;
-    a.download='BL-'+(delivBl.client||'livraison').replace(/[^a-z0-9]/gi,'-')+'.pdf';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    ouvrirVisionneusePdf(delivBl.blPdf,'BL-'+(delivBl.client||'livraison').replace(/[^a-z0-9]/gi,'-')+'.pdf','BL — '+(delivBl.client||''));
   }
   return;
 }
@@ -5247,6 +5262,7 @@ else if(action==='start-voice'){startVoice();}
 else if(action==='take-photo'){document.getElementById('cam-input').click();}
 else if(action==='agrandir-photo'){state.showPhotoLightbox=el.getAttribute('data-photo-src');render();}
 else if(action==='close-photo-lightbox'){state.showPhotoLightbox=null;render();}
+else if(action==='close-pdf-viewer'){fermerVisionneusePdf();}
 else if(action==='delete-photo'){
   var photoIdx=parseInt(el.getAttribute('data-photo-idx'),10);
   if(!isNaN(photoIdx)&&confirm('Supprimer cette photo ?')){deleteDeliveryPhoto(id,photoIdx);}
